@@ -1,19 +1,20 @@
 {
-    "name": "laravel/laravel",
+    "name": "creativecatco/gk-cms-app",
     "type": "project",
-    "description": "The skeleton application for the Laravel framework.",
+    "description": "GKeys CMS - AI-powered website builder by Growth Keys.",
     "keywords": [
-        "laravel",
-        "framework"
+        "cms",
+        "gkeys",
+        "website-builder"
     ],
-    "license": "MIT",
+    "license": "proprietary",
     "require": {
-        "php": "^8.1",
+        "php": "^8.2",
         "guzzlehttp/guzzle": "^7.2",
         "laravel/framework": "^10.10",
         "laravel/sanctum": "^3.3",
         "laravel/tinker": "^2.8",
-        "creativecatco/gk-cms-core": "dev-main",
+        "creativecatco/gk-cms-core": "^0.2",
         "filament/filament": "^3.0",
         "spatie/laravel-sluggable": "^3.6"
     },
@@ -41,7 +42,8 @@
     "scripts": {
         "post-autoload-dump": [
             "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
-            "@php artisan package:discover --ansi"
+            "@php artisan package:discover --ansi",
+            "@php artisan filament:upgrade"
         ],
         "post-update-cmd": [
             "@php artisan vendor:publish --tag=laravel-assets --ansi --force"
