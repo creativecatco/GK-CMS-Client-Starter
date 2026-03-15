@@ -13,6 +13,5 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
-Route::get('/', function () {
-    return view('welcome');
-});
+// CMS routes are handled by the GKeys CMS core package.
+// Add any custom routes here that should not be managed by the CMS.

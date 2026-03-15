@@ -5,15 +5,15 @@
  * Single-file web installer for GKeys CMS.
  * Upload this file to your web server's document root and visit it in a browser.
  *
- * @version 1.0.0
+ * @version 1.1.0
  * @author  Growth Keys / CreativeCat Co.
  */
 
 // ─── Configuration ──────────────────────────────────────────────────────────
-define('GKEYS_INSTALLER_VERSION', '1.0.0');
+define('GKEYS_INSTALLER_VERSION', '1.1.0');
 define('GKEYS_MIN_PHP', '8.2.0');
 define('GKEYS_RELEASE_API', 'https://api.github.com/repos/creativecatco/GK-CMS-Client-Starter/releases/latest');
-define('GKEYS_INSTALL_DIR', dirname(__FILE__)); // Where the CMS will be installed (parent of public_html)
+define('GKEYS_INSTALL_DIR', dirname(__FILE__)); // public_html (web root)
 
 // ─── Security: Prevent re-installation ──────────────────────────────────────
 $envFile = dirname(__FILE__) . '/../.env';
@@ -166,7 +166,6 @@ function testDatabase(array $data): array {
         ];
     } catch (PDOException $e) {
         $msg = $e->getMessage();
-        // Clean up error message for common issues
         if (strpos($msg, 'Access denied') !== false) {
             $msg = 'Access denied. Check your username and password.';
         } elseif (strpos($msg, 'Unknown database') !== false) {
@@ -189,7 +188,6 @@ function getLatestVersion(): array {
 
     $response = @file_get_contents($url, false, $context);
     if ($response === false) {
-        // Try curl fallback
         if (function_exists('curl_init')) {
             $ch = curl_init($url);
             curl_setopt_array($ch, [
@@ -230,12 +228,14 @@ function getLatestVersion(): array {
 }
 
 function runInstall(array $data): array {
-    set_time_limit(300); // 5 minutes max
+    set_time_limit(300);
     $log = [];
 
     try {
+        $installBase = dirname(GKEYS_INSTALL_DIR); // Parent of public_html
+
         // ─── Step 1: Download the release zip ───
-        $log[] = 'Downloading GKeys CMS...';
+        $log[] = '▸ Downloading GKeys CMS...';
         $downloadUrl = $data['download_url'] ?? '';
         if (empty($downloadUrl)) {
             return ['success' => false, 'error' => 'No download URL provided.', 'log' => $log];
@@ -246,34 +246,29 @@ function runInstall(array $data): array {
         if (!$downloaded) {
             return ['success' => false, 'error' => 'Failed to download the release. Check your server\'s internet connectivity.', 'log' => $log];
         }
-        $log[] = 'Download complete (' . round(filesize($zipPath) / 1024 / 1024, 1) . ' MB)';
+        $log[] = '  Download complete (' . round(filesize($zipPath) / 1024 / 1024, 1) . ' MB)';
 
         // ─── Step 2: Extract the zip ───
-        $log[] = 'Extracting files...';
+        $log[] = '▸ Extracting files...';
         $zip = new ZipArchive();
         if ($zip->open($zipPath) !== true) {
             @unlink($zipPath);
             return ['success' => false, 'error' => 'Failed to open the downloaded zip file.', 'log' => $log];
         }
 
-        // Extract to a temp directory first
         $tempDir = GKEYS_INSTALL_DIR . '/gkeys-cms-temp-' . time();
         $zip->extractTo($tempDir);
         $zip->close();
-        $log[] = 'Extraction complete.';
+        $log[] = '  Extraction complete.';
 
         // ─── Step 3: Move files to the correct locations ───
-        $log[] = 'Installing files...';
+        $log[] = '▸ Installing files...';
 
-        // The zip contains a gkeys-cms/ directory
         $sourceDir = $tempDir . '/gkeys-cms';
         if (!is_dir($sourceDir)) {
-            // Maybe the zip doesn't have the subdirectory
             $dirs = glob($tempDir . '/*', GLOB_ONLYDIR);
             $sourceDir = !empty($dirs) ? $dirs[0] : $tempDir;
         }
-
-        $installBase = dirname(GKEYS_INSTALL_DIR); // Parent of public_html
 
         // Move Laravel app files to the parent directory
         $appDirs = ['app', 'bootstrap', 'config', 'database', 'resources', 'routes', 'storage', 'vendor'];
@@ -281,7 +276,6 @@ function runInstall(array $data): array {
             if (is_dir($sourceDir . '/' . $dir)) {
                 $destDir = $installBase . '/' . $dir;
                 if (is_dir($destDir)) {
-                    // Merge instead of replace
                     recursiveCopy($sourceDir . '/' . $dir, $destDir);
                 } else {
                     rename($sourceDir . '/' . $dir, $destDir);
@@ -302,10 +296,60 @@ function runInstall(array $data): array {
             recursiveCopy($sourceDir . '/public', GKEYS_INSTALL_DIR);
         }
 
-        $log[] = 'Files installed successfully.';
+        $log[] = '  Files installed successfully.';
 
-        // ─── Step 4: Create .env file ───
-        $log[] = 'Configuring environment...';
+        // ─── Step 4: Create ALL required directories ───
+        $log[] = '▸ Creating required directories...';
+        $requiredDirs = [
+            $installBase . '/storage',
+            $installBase . '/storage/app',
+            $installBase . '/storage/app/public',
+            $installBase . '/storage/framework',
+            $installBase . '/storage/framework/cache',
+            $installBase . '/storage/framework/cache/data',
+            $installBase . '/storage/framework/sessions',
+            $installBase . '/storage/framework/views',
+            $installBase . '/storage/framework/testing',
+            $installBase . '/storage/logs',
+            $installBase . '/bootstrap/cache',
+        ];
+
+        foreach ($requiredDirs as $dir) {
+            if (!is_dir($dir)) {
+                mkdir($dir, 0775, true);
+            }
+        }
+
+        // Create .gitignore files in storage directories to match Laravel defaults
+        $gitignoreContent = "*\n!.gitignore\n";
+        $gitignoreDirs = [
+            $installBase . '/storage/app',
+            $installBase . '/storage/framework/cache',
+            $installBase . '/storage/framework/sessions',
+            $installBase . '/storage/framework/views',
+            $installBase . '/storage/logs',
+            $installBase . '/bootstrap/cache',
+        ];
+        foreach ($gitignoreDirs as $gDir) {
+            $gFile = $gDir . '/.gitignore';
+            if (!file_exists($gFile)) {
+                @file_put_contents($gFile, $gitignoreContent);
+            }
+        }
+
+        $log[] = '  Directories created.';
+
+        // ─── Step 5: Set permissions ───
+        $log[] = '▸ Setting file permissions...';
+        @chmod($installBase . '/storage', 0775);
+        @chmod($installBase . '/bootstrap/cache', 0775);
+        recursiveChmod($installBase . '/storage', 0775, 0664);
+        recursiveChmod($installBase . '/bootstrap/cache', 0775, 0664);
+        @chmod($installBase . '/artisan', 0755);
+        $log[] = '  Permissions set.';
+
+        // ─── Step 6: Create .env file ───
+        $log[] = '▸ Configuring environment...';
         $appKey = 'base64:' . base64_encode(random_bytes(32));
         $appUrl = rtrim($data['app_url'] ?? ('https://' . $_SERVER['HTTP_HOST']), '/');
 
@@ -350,10 +394,10 @@ function runInstall(array $data): array {
         $envContent .= "CMS_RELEASE_REPO=creativecatco/GK-CMS-Client-Starter\n";
 
         file_put_contents($installBase . '/.env', $envContent);
-        $log[] = 'Environment configured.';
+        $log[] = '  Environment configured.';
 
-        // ─── Step 5: Fix the index.php to point to the correct paths ───
-        $log[] = 'Configuring web entry point...';
+        // ─── Step 7: Fix the index.php to point to the correct paths ───
+        $log[] = '▸ Configuring web entry point...';
         $indexPhp = createIndexPhp();
         file_put_contents(GKEYS_INSTALL_DIR . '/index.php', $indexPhp);
 
@@ -361,84 +405,154 @@ function runInstall(array $data): array {
         if (!file_exists(GKEYS_INSTALL_DIR . '/.htaccess')) {
             file_put_contents(GKEYS_INSTALL_DIR . '/.htaccess', createHtaccess());
         }
-        $log[] = 'Web entry point configured.';
+        $log[] = '  Web entry point configured.';
 
-        // ─── Step 6: Set permissions ───
-        $log[] = 'Setting file permissions...';
-        @chmod($installBase . '/storage', 0775);
-        @chmod($installBase . '/bootstrap/cache', 0775);
-        recursiveChmod($installBase . '/storage', 0775, 0664);
-        $log[] = 'Permissions set.';
+        // ─── Step 8: Fix User model to implement FilamentUser ───
+        $log[] = '▸ Configuring User model for admin panel access...';
+        patchUserModel($installBase);
+        $log[] = '  User model configured.';
 
-        // ─── Step 7: Create storage symlink ───
-        $log[] = 'Creating storage symlink...';
+        // ─── Step 9: Clear default welcome route ───
+        $log[] = '▸ Configuring routes...';
+        patchWebRoutes($installBase);
+        $log[] = '  Routes configured.';
+
+        // ─── Step 10: Create storage symlink ───
+        $log[] = '▸ Creating storage symlink...';
         $storageLink = GKEYS_INSTALL_DIR . '/storage';
         if (!file_exists($storageLink)) {
             @symlink($installBase . '/storage/app/public', $storageLink);
         }
-        $log[] = 'Storage linked.';
+        $log[] = '  Storage linked.';
 
-        // ─── Step 8: Run migrations ───
-        $log[] = 'Running database migrations...';
+        // ─── Step 11: Run migrations ───
+        $log[] = '▸ Running database migrations...';
         $phpBinary = PHP_BINARY ?: 'php';
         $artisan = $installBase . '/artisan';
 
         $migrationOutput = shell_exec("cd {$installBase} && {$phpBinary} {$artisan} migrate --force 2>&1");
-        $log[] = 'Migrations: ' . trim($migrationOutput ?? 'completed');
+        $migrationResult = trim($migrationOutput ?? '');
+        $log[] = '  ' . $migrationResult;
 
-        // ─── Step 9: Seed default content ───
-        $log[] = 'Creating default content...';
+        // Verify migrations actually ran by checking if users table exists
+        try {
+            $dsn = "mysql:host=" . ($data['db_host'] ?? '127.0.0.1') . ";port=" . ($data['db_port'] ?? '3306') . ";dbname=" . ($data['db_name'] ?? '');
+            $pdo = new PDO($dsn, $data['db_user'] ?? '', $data['db_pass'] ?? '', [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            ]);
+            $tables = $pdo->query("SHOW TABLES")->fetchAll(PDO::FETCH_COLUMN);
+
+            if (!in_array('users', $tables)) {
+                $log[] = '  ⚠ WARNING: Migrations may have failed. Attempting direct migration...';
+                // Try running migration again with error output
+                $retryOutput = shell_exec("cd {$installBase} && {$phpBinary} {$artisan} migrate --force --no-interaction 2>&1");
+                $log[] = '  Retry: ' . trim($retryOutput ?? 'no output');
+
+                // Check again
+                $tables = $pdo->query("SHOW TABLES")->fetchAll(PDO::FETCH_COLUMN);
+                if (!in_array('users', $tables)) {
+                    $log[] = '  ✗ CRITICAL: Database tables could not be created. Found ' . count($tables) . ' tables.';
+                    $log[] = '  Please run manually via SSH: php artisan migrate --force';
+                }
+            } else {
+                $log[] = '  ✓ Database tables verified (' . count($tables) . ' tables created).';
+            }
+        } catch (Exception $e) {
+            $log[] = '  ⚠ Could not verify tables: ' . $e->getMessage();
+        }
+
+        // ─── Step 12: Seed default content ───
+        $log[] = '▸ Creating default content...';
         $seedOutput = shell_exec("cd {$installBase} && {$phpBinary} {$artisan} gkeys:seed-content 2>&1");
-        $log[] = 'Seeding: ' . trim($seedOutput ?? 'completed');
+        $log[] = '  ' . trim($seedOutput ?? 'completed');
 
-        // ─── Step 10: Create admin user ───
-        $log[] = 'Creating admin account...';
+        // ─── Step 13: Create admin user using prepared statements ───
+        $log[] = '▸ Creating admin account...';
         $adminName = $data['admin_name'] ?? 'Admin';
         $adminEmail = $data['admin_email'] ?? 'admin@example.com';
         $adminPassword = $data['admin_password'] ?? '';
 
         if (!empty($adminEmail) && !empty($adminPassword)) {
-            // Create admin user via artisan tinker
-            $escapedName = addslashes($adminName);
-            $escapedEmail = addslashes($adminEmail);
-            $hashedPassword = password_hash($adminPassword, PASSWORD_BCRYPT);
-
-            $createUserSql = "INSERT INTO users (name, email, password, role, created_at, updated_at) VALUES ('{$escapedName}', '{$escapedEmail}', '{$hashedPassword}', 'admin', NOW(), NOW()) ON DUPLICATE KEY UPDATE password='{$hashedPassword}', role='admin'";
-
             try {
                 $dsn = "mysql:host=" . ($data['db_host'] ?? '127.0.0.1') . ";port=" . ($data['db_port'] ?? '3306') . ";dbname=" . ($data['db_name'] ?? '');
-                $pdo = new PDO($dsn, $data['db_user'] ?? '', $data['db_pass'] ?? '');
-                $pdo->exec($createUserSql);
-                $log[] = 'Admin account created.';
+                $pdo = new PDO($dsn, $data['db_user'] ?? '', $data['db_pass'] ?? '', [
+                    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                ]);
+
+                $hashedPassword = password_hash($adminPassword, PASSWORD_BCRYPT);
+                $now = date('Y-m-d H:i:s');
+
+                $stmt = $pdo->prepare(
+                    "INSERT INTO users (name, email, password, role, email_verified_at, created_at, updated_at)
+                     VALUES (:name, :email, :password, 'admin', :verified, :created, :updated)
+                     ON DUPLICATE KEY UPDATE password = VALUES(password), role = 'admin', email_verified_at = VALUES(email_verified_at)"
+                );
+                $stmt->execute([
+                    ':name' => $adminName,
+                    ':email' => $adminEmail,
+                    ':password' => $hashedPassword,
+                    ':verified' => $now,
+                    ':created' => $now,
+                    ':updated' => $now,
+                ]);
+                $log[] = '  ✓ Admin account created for: ' . $adminEmail;
             } catch (Exception $e) {
-                $log[] = 'Admin account: Could not create directly, will need to register via /admin.';
+                $log[] = '  ⚠ Could not create admin: ' . $e->getMessage();
+                $log[] = '  You can register at ' . $appUrl . '/admin after installation.';
             }
         }
 
-        // ─── Step 11: Publish assets and clear caches ───
-        $log[] = 'Publishing assets...';
+        // ─── Step 14: Set home page default ───
+        $log[] = '▸ Setting default home page...';
+        try {
+            $dsn = "mysql:host=" . ($data['db_host'] ?? '127.0.0.1') . ";port=" . ($data['db_port'] ?? '3306') . ";dbname=" . ($data['db_name'] ?? '');
+            $pdo = new PDO($dsn, $data['db_user'] ?? '', $data['db_pass'] ?? '', [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            ]);
+
+            // Find the "Home" page
+            $stmt = $pdo->prepare("SELECT id FROM pages WHERE slug = 'home' OR title = 'Home' LIMIT 1");
+            $stmt->execute();
+            $homePage = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($homePage) {
+                // Set it as the home page in settings
+                $stmt = $pdo->prepare(
+                    "INSERT INTO settings (`key`, `value`, created_at, updated_at)
+                     VALUES ('home_page', :page_id, NOW(), NOW())
+                     ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)"
+                );
+                $stmt->execute([':page_id' => $homePage['id']]);
+                $log[] = '  ✓ Home page set to page ID ' . $homePage['id'];
+            } else {
+                $log[] = '  ⚠ No "Home" page found. Set the home page in Settings after login.';
+            }
+        } catch (Exception $e) {
+            $log[] = '  ⚠ Could not set home page: ' . $e->getMessage();
+        }
+
+        // ─── Step 15: Publish assets and clear caches ───
+        $log[] = '▸ Publishing assets...';
         shell_exec("cd {$installBase} && {$phpBinary} {$artisan} vendor:publish --tag=cms-assets --force 2>&1");
         shell_exec("cd {$installBase} && {$phpBinary} {$artisan} cms:safe-publish-templates 2>&1");
+        $log[] = '  Assets published.';
+
+        $log[] = '▸ Clearing caches...';
         shell_exec("cd {$installBase} && {$phpBinary} {$artisan} cache:clear 2>&1");
         shell_exec("cd {$installBase} && {$phpBinary} {$artisan} config:clear 2>&1");
         shell_exec("cd {$installBase} && {$phpBinary} {$artisan} view:clear 2>&1");
         shell_exec("cd {$installBase} && {$phpBinary} {$artisan} route:clear 2>&1");
-        $log[] = 'Assets published and caches cleared.';
+        $log[] = '  Caches cleared.';
 
-        // ─── Step 12: Build template manifest ───
-        $log[] = 'Building template protection manifest...';
-        shell_exec("cd {$installBase} && {$phpBinary} {$artisan} cms:safe-publish-templates 2>&1");
-        $log[] = 'Template manifest built.';
-
-        // ─── Step 13: Cleanup ───
-        $log[] = 'Cleaning up...';
+        // ─── Step 16: Cleanup ───
+        $log[] = '▸ Cleaning up...';
         @unlink($zipPath);
         recursiveDelete($tempDir);
-        $log[] = 'Temporary files removed.';
+        $log[] = '  Temporary files removed.';
 
         // ─── Done ───
         $log[] = '';
-        $log[] = 'Installation complete!';
+        $log[] = '✓ Installation complete!';
         $adminUrl = $appUrl . '/admin';
 
         return [
@@ -449,7 +563,7 @@ function runInstall(array $data): array {
         ];
 
     } catch (Exception $e) {
-        $log[] = 'ERROR: ' . $e->getMessage();
+        $log[] = '✗ ERROR: ' . $e->getMessage();
         return ['success' => false, 'error' => $e->getMessage(), 'log' => $log];
     }
 }
@@ -545,10 +659,67 @@ function recursiveChmod(string $dir, int $dirPerm, int $filePerm): void {
     }
 }
 
+/**
+ * Patch the User model to implement FilamentUser interface.
+ * This is required for Filament 3 admin panel access in production.
+ */
+function patchUserModel(string $installBase): void {
+    $userModelPath = $installBase . '/app/Models/User.php';
+    if (!file_exists($userModelPath)) return;
+
+    $content = file_get_contents($userModelPath);
+
+    // Skip if already patched
+    if (strpos($content, 'FilamentUser') !== false) return;
+
+    // Add the FilamentUser import and interface
+    $content = str_replace(
+        'use Illuminate\\Database\\Eloquent\\Factories\\HasFactory;',
+        "use Filament\\Models\\Contracts\\FilamentUser;\nuse Filament\\Panel;\nuse Illuminate\\Database\\Eloquent\\Factories\\HasFactory;",
+        $content
+    );
+
+    $content = str_replace(
+        'class User extends Authenticatable',
+        'class User extends Authenticatable implements FilamentUser',
+        $content
+    );
+
+    // Add canAccessPanel method before the closing brace
+    $closingBrace = strrpos($content, '}');
+    if ($closingBrace !== false) {
+        $method = "\n    /**\n     * Determine if the user can access the Filament admin panel.\n     */\n    public function canAccessPanel(Panel \$panel): bool\n    {\n        return true;\n    }\n";
+        $content = substr($content, 0, $closingBrace) . $method . substr($content, $closingBrace);
+    }
+
+    file_put_contents($userModelPath, $content);
+}
+
+/**
+ * Remove the default Laravel welcome route that conflicts with CMS routes.
+ */
+function patchWebRoutes(string $installBase): void {
+    $routesPath = $installBase . '/routes/web.php';
+    if (!file_exists($routesPath)) return;
+
+    $content = file_get_contents($routesPath);
+
+    // Remove the default welcome route
+    if (strpos($content, "return view('welcome')") !== false) {
+        $content = preg_replace(
+            '/Route::get\s*\(\s*[\'"]\/[\'"]\s*,\s*function\s*\(\)\s*\{[^}]*return\s+view\s*\(\s*[\'"]welcome[\'"]\s*\)\s*;[^}]*\}\s*\)\s*;/s',
+            "// CMS routes are handled by the GKeys CMS core package.\n// Add any custom routes here that should not be managed by the CMS.",
+            $content
+        );
+        file_put_contents($routesPath, $content);
+    }
+}
+
 function createIndexPhp(): string {
     return <<<'PHP'
 <?php
 
+use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Http\Request;
 
 define('LARAVEL_START', microtime(true));
@@ -556,12 +727,36 @@ define('LARAVEL_START', microtime(true));
 // Determine the project root (parent of public_html)
 $projectRoot = dirname(__DIR__);
 
-// Register the Composer autoloader
+/*
+|--------------------------------------------------------------------------
+| Check If The Application Is Under Maintenance
+|--------------------------------------------------------------------------
+*/
+if (file_exists($maintenance = $projectRoot . '/storage/framework/maintenance.php')) {
+    require $maintenance;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Register The Auto Loader
+|--------------------------------------------------------------------------
+*/
 require $projectRoot . '/vendor/autoload.php';
 
-// Bootstrap Laravel and handle the incoming request
-(require_once $projectRoot . '/bootstrap/app.php')
-    ->handleRequest(Request::capture());
+/*
+|--------------------------------------------------------------------------
+| Run The Application
+|--------------------------------------------------------------------------
+*/
+$app = require_once $projectRoot . '/bootstrap/app.php';
+
+$kernel = $app->make(Kernel::class);
+
+$response = $kernel->handle(
+    $request = Request::capture()
+)->send();
+
+$kernel->terminate($request, $response);
 PHP;
 }
 
@@ -856,7 +1051,7 @@ HTACCESS;
             font-size: 0.8125rem;
             line-height: 1.6;
             color: var(--success);
-            max-height: 300px;
+            max-height: 400px;
             overflow-y: auto;
             white-space: pre-wrap;
         }
@@ -949,7 +1144,7 @@ HTACCESS;
                 <div class="form-row">
                     <div class="form-group">
                         <label>Database Host</label>
-                        <input type="text" id="db_host" value="127.0.0.1" placeholder="127.0.0.1">
+                        <input type="text" id="db_host" value="localhost" placeholder="localhost">
                     </div>
                     <div class="form-group">
                         <label>Port</label>
@@ -1095,7 +1290,6 @@ HTACCESS;
 
                 if (data.all_pass) {
                     document.getElementById('btn-step1-next').disabled = false;
-                    // Also fetch latest version
                     fetchLatestVersion();
                 } else {
                     document.getElementById('system-checks').innerHTML += '<div class="alert alert-error" style="margin-top:1rem;">Some requirements are not met. Please contact your hosting provider.</div>';
@@ -1217,12 +1411,12 @@ HTACCESS;
                         document.getElementById('admin-link').href = data.admin_url;
                     }
                 } else {
-                    logEl.textContent += '\n\nERROR: ' + (data.error || 'Installation failed.');
+                    logEl.textContent += '\n\n✗ ERROR: ' + (data.error || 'Installation failed.');
                     logEl.style.color = 'var(--error)';
                 }
             })
             .catch(function(err) {
-                logEl.textContent += '\n\nERROR: ' + err.message;
+                logEl.textContent += '\n\n✗ ERROR: ' + err.message;
                 logEl.style.color = 'var(--error)';
             });
     }
