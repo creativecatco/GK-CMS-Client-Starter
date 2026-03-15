@@ -357,12 +357,12 @@
             "source": {
                 "type": "git",
                 "url": "git@github.com:creativecatco/gk-cms-core.git",
-                "reference": "407ecf36045fe23a085abe3730f55cde0f45a391"
+                "reference": "43ee0569f8b531742578af06a092917c18b8d242"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/creativecatco/gk-cms-core/zipball/407ecf36045fe23a085abe3730f55cde0f45a391",
-                "reference": "407ecf36045fe23a085abe3730f55cde0f45a391",
+                "url": "https://api.github.com/repos/creativecatco/gk-cms-core/zipball/43ee0569f8b531742578af06a092917c18b8d242",
+                "reference": "43ee0569f8b531742578af06a092917c18b8d242",
                 "shasum": ""
             },
             "require": {
@@ -428,7 +428,7 @@
                 "source": "https://github.com/creativecatco/gk-cms-core/tree/v0.3.9",
                 "issues": "https://github.com/creativecatco/gk-cms-core/issues"
             },
-            "time": "2026-03-15T09:52:14+00:00"
+            "time": "2026-03-15T10:14:40+00:00"
         },
         {
             "name": "danharrin/date-format-converter",
