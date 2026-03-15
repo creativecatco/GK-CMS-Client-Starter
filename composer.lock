@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "f7f5e0cfaf7f41bbcd1478384cbbcdbe",
+    "content-hash": "913e3447e92bd28b38e09243c1b6f55a",
     "packages": [
         {
             "name": "anourvalar/eloquent-serialize",
@@ -353,16 +353,16 @@
         },
         {
             "name": "creativecatco/gk-cms-core",
-            "version": "0.3.0",
+            "version": "dev-main",
             "source": {
                 "type": "git",
                 "url": "git@github.com:creativecatco/gk-cms-core.git",
-                "reference": "e20157bc2fea5d696ffbd604877472df333ac50d"
+                "reference": "958c60ee62c41f1b3126473fda42467cf483c3a7"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/creativecatco/gk-cms-core/zipball/e20157bc2fea5d696ffbd604877472df333ac50d",
-                "reference": "e20157bc2fea5d696ffbd604877472df333ac50d",
+                "url": "https://api.github.com/repos/creativecatco/gk-cms-core/zipball/958c60ee62c41f1b3126473fda42467cf483c3a7",
+                "reference": "958c60ee62c41f1b3126473fda42467cf483c3a7",
                 "shasum": ""
             },
             "require": {
@@ -385,6 +385,7 @@
                 "orchestra/testbench": "^9.0",
                 "phpunit/phpunit": "^11.0"
             },
+            "default-branch": true,
             "type": "library",
             "extra": {
                 "laravel": {
@@ -425,10 +426,10 @@
                 "laravel"
             ],
             "support": {
-                "source": "https://github.com/creativecatco/gk-cms-core/tree/v0.3.0",
+                "source": "https://github.com/creativecatco/gk-cms-core/tree/v0.3.8.1",
                 "issues": "https://github.com/creativecatco/gk-cms-core/issues"
             },
-            "time": "2026-03-14T15:11:59+00:00"
+            "time": "2026-03-15T08:13:12+00:00"
         },
         {
             "name": "danharrin/date-format-converter",
@@ -10301,12 +10302,14 @@
     ],
     "aliases": [],
     "minimum-stability": "dev",
-    "stability-flags": {},
+    "stability-flags": {
+        "creativecatco/gk-cms-core": 20
+    },
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {
         "php": "^8.2"
     },
     "platform-dev": {},
-    "plugin-api-version": "2.6.0"
+    "plugin-api-version": "2.9.0"
 }
