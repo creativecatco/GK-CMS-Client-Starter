@@ -1,0 +1,644 @@
+<?php
+
+namespace App\Providers\Filament;
+
+use Filament\Http\Middleware\Authenticate;
+use Filament\Http\Middleware\AuthenticateSession;
+use Filament\Http\Middleware\DisableBladeIconComponents;
+use Filament\Http\Middleware\DispatchServingFilamentEvent;
+use Filament\Pages;
+use Filament\Panel;
+use Filament\PanelProvider;
+use Filament\Support\Colors\Color;
+use Filament\Widgets;
+use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
+use Illuminate\Cookie\Middleware\EncryptCookies;
+use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
+use Illuminate\Routing\Middleware\SubstituteBindings;
+use Illuminate\Session\Middleware\StartSession;
+use Illuminate\View\Middleware\ShareErrorsFromSession;
+use CreativeCatCo\GkCmsCore\Filament\Pages\SettingPage;
+use CreativeCatCo\GkCmsCore\Filament\Pages\SearchReplacePage;
+use CreativeCatCo\GkCmsCore\Filament\Pages\CssEditorPage;
+use CreativeCatCo\GkCmsCore\Filament\Pages\OnboardingPage;
+use CreativeCatCo\GkCmsCore\Filament\Pages\PluginsPage;
+use CreativeCatCo\GkCmsCore\Filament\Pages\UpdatesPage;
+use CreativeCatCo\GkCmsCore\Filament\Widgets\StatsOverviewWidget;
+use CreativeCatCo\GkCmsCore\Filament\Widgets\RecentActivityWidget;
+use CreativeCatCo\GkCmsCore\Filament\Widgets\QuickActionsWidget;
+
+class AdminPanelProvider extends PanelProvider
+{
+    public function panel(Panel $panel): Panel
+    {
+        return $panel
+            ->default()
+            ->id('admin')
+            ->path('admin')
+            ->login()
+            ->colors([
+                /*
+                 * ============================================
+                 * GKeys CMS Brand Color Mapping
+                 * ============================================
+                 * primary  → #293726 (deep forest green) - main actions, save buttons
+                 * danger   → #3f1111 (deep maroon) - delete, destructive actions
+                 * gray     → #3f524e (forest green) - icons, muted text, neutral UI
+                 * info     → #3f524e (lighter forest green) - secondary info, type badges
+                 * success  → #d2eb00 (lime) - published status, positive states
+                 * warning  → #43302e (lighter maroon) - caution states
+                 * ============================================
+                 */
+                'primary' => Color::hex('#293726'),
+                'danger'  => Color::hex('#3f1111'),
+                'gray'    => Color::hex('#3f524e'),
+                'info'    => Color::hex('#3f524e'),
+                'success' => Color::hex('#d2eb00'),
+                'warning' => Color::hex('#43302e'),
+            ])
+            ->brandName('GKeys CMS')
+            ->brandLogo('/vendor/cms-core/img/gkeys-lock-icon.png')
+            ->brandLogoHeight('2.5rem')
+            ->favicon('/vendor/cms-core/img/gkeys-icon-favicon.png')
+            ->darkMode(true, true)
+            ->sidebarCollapsibleOnDesktop()
+            ->navigationGroups([
+                'Content',
+                'Design',
+                'System',
+                'Administration',
+            ])
+            ->discoverResources(in: app_path('Filament/Resources'), for: 'App\\Filament\\Resources')
+            ->discoverResources(in: base_path('vendor/creativecatco/gk-cms-core/src/Filament/Resources'), for: 'CreativeCatCo\\GkCmsCore\\Filament\\Resources')
+            ->discoverPages(in: app_path('Filament/Pages'), for: 'App\\Filament\\Pages')
+            ->pages([
+                Pages\Dashboard::class,
+                SettingPage::class,
+                SearchReplacePage::class,
+                CssEditorPage::class,
+                OnboardingPage::class,
+                PluginsPage::class,
+                UpdatesPage::class,
+            ])
+            ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\\Filament\\Widgets')
+            ->widgets([
+                StatsOverviewWidget::class,
+                RecentActivityWidget::class,
+                QuickActionsWidget::class,
+            ])
+            ->middleware([
+                EncryptCookies::class,
+                AddQueuedCookiesToResponse::class,
+                StartSession::class,
+                AuthenticateSession::class,
+                ShareErrorsFromSession::class,
+                VerifyCsrfToken::class,
+                SubstituteBindings::class,
+                DisableBladeIconComponents::class,
+                DispatchServingFilamentEvent::class,
+            ])
+            ->authMiddleware([
+                Authenticate::class,
+            ])
+            ->renderHook(
+                'panels::styles.after',
+                fn () => $this->getAdminThemeCss()
+            )
+            ->renderHook(
+                'panels::body.end',
+                fn () => '<div class="gk-beta-bar"><span class="gk-beta-label">BETA</span><span class="gk-version">GKeys CMS v0.1.0-beta</span><span>&middot;</span><span>Build 2026.03.13</span></div>'
+            );
+    }
+
+    protected function getAdminThemeCss(): string
+    {
+        return <<<'CSS'
+<style>
+    /*
+     * ============================================
+     * GKeys CMS Admin Theme
+     * ============================================
+     * Full brand palette:
+     *   Limes:   #cfff2e / #d2eb00
+     *   Creams:  #f6f1e6 / #f0ece1
+     *   Greens:  #3f524e / #293726
+     *   Darks:   #272a36 / #15171e
+     *   Maroons: #43302e / #3f1111
+     * ============================================
+     */
+
+    /* ---- ROOT BRAND VARIABLES ---- */
+    :root {
+        --gk-sidebar: #15171e;
+        --gk-sidebar-light: #272a36;
+        --gk-sidebar-border: #2e3140;
+        --gk-primary: #293726;
+        --gk-primary-light: #3f524e;
+        --gk-primary-hover: #344a30;
+        --gk-accent: #d2eb00;
+        --gk-accent-bright: #cfff2e;
+        --gk-accent-dim: #a8bc00;
+        --gk-danger: #3f1111;
+        --gk-danger-light: #43302e;
+        --gk-danger-hover: #4d1616;
+        --gk-bg-light: #f6f1e6;
+        --gk-bg-light-alt: #f0ece1;
+        --gk-text-muted: #9a958b;
+        --gk-text-light: #c5c0b5;
+    }
+
+    /* ============================================
+     * SIDEBAR - Dark blue-black (#15171e)
+     * ============================================ */
+    .fi-sidebar,
+    aside.fi-sidebar {
+        background-color: var(--gk-sidebar) !important;
+        border-right-color: var(--gk-sidebar-border) !important;
+    }
+    .fi-sidebar-header {
+        background-color: var(--gk-sidebar) !important;
+        border-bottom-color: var(--gk-sidebar-border) !important;
+    }
+    .fi-sidebar-nav,
+    .fi-sidebar-nav-groups {
+        background-color: var(--gk-sidebar) !important;
+    }
+    .fi-sidebar-footer {
+        background-color: var(--gk-sidebar) !important;
+        border-top-color: var(--gk-sidebar-border) !important;
+    }
+
+    /* Sidebar group labels - accent lime */
+    .fi-sidebar-group-label,
+    .fi-sidebar-group > button > span {
+        color: var(--gk-accent) !important;
+        opacity: 0.8;
+        font-size: 0.65rem !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.08em !important;
+    }
+
+    /* Sidebar item text */
+    .fi-sidebar-item-label,
+    .fi-sidebar-item a span,
+    .fi-sidebar-nav-flat-item-label {
+        color: var(--gk-text-light) !important;
+    }
+    /* Sidebar item icons */
+    .fi-sidebar-item-icon,
+    .fi-sidebar-item a svg,
+    .fi-sidebar-nav-flat-item-icon {
+        color: var(--gk-text-muted) !important;
+    }
+
+    /* Sidebar hover */
+    .fi-sidebar-item a:hover,
+    .fi-sidebar-item-button:hover,
+    .fi-sidebar-nav-flat-item-button:hover {
+        background-color: var(--gk-sidebar-light) !important;
+    }
+    .fi-sidebar-item a:hover span,
+    .fi-sidebar-item-button:hover .fi-sidebar-item-label,
+    .fi-sidebar-nav-flat-item-button:hover .fi-sidebar-nav-flat-item-label {
+        color: #ffffff !important;
+    }
+    .fi-sidebar-item a:hover svg,
+    .fi-sidebar-item-button:hover .fi-sidebar-item-icon,
+    .fi-sidebar-nav-flat-item-button:hover .fi-sidebar-nav-flat-item-icon {
+        color: var(--gk-accent) !important;
+    }
+
+    /* Sidebar active item */
+    .fi-sidebar-item-active a,
+    .fi-sidebar-item-active .fi-sidebar-item-button,
+    .fi-sidebar-item-active > a,
+    .fi-active {
+        background-color: var(--gk-sidebar-light) !important;
+    }
+    .fi-sidebar-item-active .fi-sidebar-item-label,
+    .fi-sidebar-item-active a span {
+        color: #ffffff !important;
+        font-weight: 600 !important;
+    }
+    .fi-sidebar-item-active .fi-sidebar-item-icon,
+    .fi-sidebar-item-active a svg {
+        color: var(--gk-accent) !important;
+    }
+
+    /* ============================================
+     * TOPBAR - Darker than sidebar for contrast
+     * ============================================ */
+    .fi-topbar,
+    .fi-topbar > nav,
+    .fi-topbar nav {
+        background-color: #0d0e13 !important;
+        border-bottom: 2px solid var(--gk-primary) !important;
+    }
+
+    /* ============================================
+     * BODY / MAIN CONTENT AREA
+     * ============================================ */
+    .fi-body {
+        background-color: var(--gk-bg-light) !important;
+    }
+    .dark .fi-body {
+        background-color: #1a1c24 !important;
+    }
+
+    /* ============================================
+     * PRIMARY BUTTONS - Deep forest green (#293726)
+     * ============================================ */
+    .fi-btn-color-primary,
+    button[type="submit"].fi-btn,
+    .fi-ac-btn-action {
+        background-color: var(--gk-primary) !important;
+        border-color: var(--gk-primary) !important;
+        color: #ffffff !important;
+    }
+    .fi-btn-color-primary:hover,
+    button[type="submit"].fi-btn:hover,
+    .fi-ac-btn-action:hover {
+        background-color: var(--gk-primary-hover) !important;
+        border-color: var(--gk-primary-hover) !important;
+    }
+
+    /* ============================================
+     * SUCCESS BUTTONS - Lime (#d2eb00) with dark text
+     * ============================================ */
+    .fi-btn-color-success {
+        background-color: var(--gk-accent) !important;
+        border-color: var(--gk-accent) !important;
+        color: var(--gk-primary) !important;
+    }
+    .fi-btn-color-success:hover {
+        background-color: var(--gk-accent-bright) !important;
+        border-color: var(--gk-accent-bright) !important;
+        color: var(--gk-primary) !important;
+    }
+
+    /* ============================================
+     * DANGER / DELETE BUTTONS - Deep maroon (#3f1111)
+     * ============================================ */
+    .fi-btn-color-danger {
+        background-color: var(--gk-danger) !important;
+        border-color: var(--gk-danger) !important;
+        color: #ffffff !important;
+    }
+    .fi-btn-color-danger:hover {
+        background-color: var(--gk-danger-hover) !important;
+        border-color: var(--gk-danger-hover) !important;
+    }
+
+    /* ============================================
+     * WARNING BUTTONS - Lighter maroon (#43302e)
+     * ============================================ */
+    .fi-btn-color-warning {
+        background-color: var(--gk-danger-light) !important;
+        border-color: var(--gk-danger-light) !important;
+        color: var(--gk-bg-light) !important;
+    }
+    .fi-btn-color-warning:hover {
+        background-color: var(--gk-danger) !important;
+        border-color: var(--gk-danger) !important;
+    }
+
+    /* ============================================
+     * INFO BUTTONS - Lighter forest green (#3f524e)
+     * ============================================ */
+    .fi-btn-color-info {
+        background-color: var(--gk-primary-light) !important;
+        border-color: var(--gk-primary-light) !important;
+        color: #ffffff !important;
+    }
+    .fi-btn-color-info:hover {
+        background-color: var(--gk-primary) !important;
+        border-color: var(--gk-primary) !important;
+    }
+
+    /* ============================================
+     * LINKS & TEXT COLORS
+     * ============================================ */
+    .fi-link-color-primary,
+    .fi-ta-text-color-primary,
+    a.fi-link {
+        color: var(--gk-primary-light) !important;
+    }
+    .fi-link-color-primary:hover,
+    .fi-ta-text-color-primary:hover,
+    a.fi-link:hover {
+        color: var(--gk-primary) !important;
+    }
+
+    /* ============================================
+     * BADGES - Varied brand colors
+     * ============================================ */
+    .fi-badge-color-primary {
+        background-color: var(--gk-primary) !important;
+        color: #ffffff !important;
+    }
+    .fi-badge-color-success {
+        background-color: var(--gk-accent) !important;
+        color: var(--gk-primary) !important;
+    }
+    .fi-badge-color-info {
+        background-color: var(--gk-primary-light) !important;
+        color: #ffffff !important;
+    }
+    .fi-badge-color-danger {
+        background-color: var(--gk-danger) !important;
+        color: #ffffff !important;
+    }
+    .fi-badge-color-warning {
+        background-color: var(--gk-danger-light) !important;
+        color: var(--gk-bg-light) !important;
+    }
+
+    /* ============================================
+     * TABS & NAVIGATION
+     * ============================================ */
+    .fi-tabs-item-active .fi-tabs-item-button {
+        border-color: var(--gk-accent) !important;
+    }
+    .fi-tabs-item-active .fi-tabs-item-label {
+        color: var(--gk-accent) !important;
+    }
+
+    /* ============================================
+     * FORM FOCUS RINGS
+     * ============================================ */
+    .fi-input-wrp:focus-within {
+        border-color: var(--gk-accent) !important;
+        box-shadow: 0 0 0 1px var(--gk-accent) !important;
+    }
+    input:focus, textarea:focus, select:focus {
+        --tw-ring-color: var(--gk-accent) !important;
+        border-color: var(--gk-accent) !important;
+    }
+
+    /* ============================================
+     * TOGGLE / CHECKBOX
+     * ============================================ */
+    .fi-toggle-on,
+    input[type="checkbox"]:checked {
+        background-color: var(--gk-primary) !important;
+        border-color: var(--gk-primary) !important;
+    }
+
+    /* ============================================
+     * TABLE ROW HOVER
+     * ============================================ */
+    .fi-ta-row:hover {
+        background-color: var(--gk-bg-light-alt) !important;
+    }
+    .dark .fi-ta-row:hover {
+        background-color: var(--gk-sidebar-light) !important;
+    }
+
+    /* ============================================
+     * CARDS & SECTIONS
+     * ============================================ */
+    .fi-section,
+    .fi-card {
+        border-color: #e0dbd0 !important;
+    }
+    .dark .fi-section,
+    .dark .fi-card {
+        border-color: var(--gk-sidebar-border) !important;
+    }
+
+    /* ============================================
+     * STATS WIDGETS
+     * ============================================ */
+    .fi-wi-stats-overview-stat-color-primary {
+        border-left-color: var(--gk-primary) !important;
+    }
+    .fi-wi-stats-overview-stat-color-primary .fi-wi-stats-overview-stat-icon {
+        color: var(--gk-primary) !important;
+    }
+    .fi-wi-stats-overview-stat-color-info {
+        border-left-color: var(--gk-primary-light) !important;
+    }
+    .fi-wi-stats-overview-stat-color-info .fi-wi-stats-overview-stat-icon {
+        color: var(--gk-primary-light) !important;
+    }
+    .fi-wi-stats-overview-stat-color-success {
+        border-left-color: var(--gk-accent) !important;
+    }
+    .fi-wi-stats-overview-stat-color-success .fi-wi-stats-overview-stat-icon {
+        color: var(--gk-accent-dim) !important;
+    }
+    .fi-wi-stats-overview-stat-color-danger .fi-wi-stats-overview-stat-icon {
+        color: var(--gk-danger) !important;
+    }
+
+    /* ============================================
+     * NOTIFICATIONS
+     * ============================================ */
+    .fi-notification-danger {
+        background-color: var(--gk-danger) !important;
+    }
+    .fi-notification-success {
+        background-color: var(--gk-primary) !important;
+    }
+
+    /* ============================================
+     * MODAL CONFIRM DELETE
+     * ============================================ */
+    .fi-modal .fi-btn-color-danger {
+        background-color: var(--gk-danger) !important;
+    }
+    .fi-modal .fi-btn-color-danger:hover {
+        background-color: var(--gk-danger-hover) !important;
+    }
+
+    /* ============================================
+     * PAGINATION
+     * ============================================ */
+    .fi-pagination-item-active {
+        background-color: var(--gk-primary) !important;
+        color: #ffffff !important;
+    }
+
+    /* ============================================
+     * BREADCRUMBS
+     * ============================================ */
+    .fi-breadcrumbs a {
+        color: var(--gk-primary-light) !important;
+    }
+    .fi-breadcrumbs a:hover {
+        color: var(--gk-accent) !important;
+    }
+
+    /* ============================================
+     * HEADER ACTIONS
+     * ============================================ */
+    .fi-header-actions .fi-btn-color-primary {
+        background-color: var(--gk-primary) !important;
+    }
+    .fi-header-actions .fi-btn-color-primary:hover {
+        background-color: var(--gk-primary-hover) !important;
+    }
+
+    /* ============================================
+     * GLOBAL SEARCH
+     * ============================================ */
+    .fi-global-search-input:focus {
+        border-color: var(--gk-accent) !important;
+    }
+
+    /* ============================================
+     * LOGIN PAGE
+     * ============================================ */
+    .fi-simple-layout {
+        background-color: var(--gk-sidebar) !important;
+    }
+    .fi-simple-main-ctn {
+        background-color: var(--gk-sidebar-light) !important;
+        border: 1px solid var(--gk-sidebar-border) !important;
+    }
+    .fi-simple-main-ctn .fi-btn {
+        background-color: var(--gk-accent-bright) !important;
+        color: var(--gk-primary) !important;
+        font-weight: 700 !important;
+    }
+    .fi-simple-main-ctn .fi-btn:hover {
+        background-color: var(--gk-accent) !important;
+        color: var(--gk-sidebar) !important;
+    }
+
+    /* ============================================
+     * DARK MODE OVERRIDES
+     * ============================================ */
+    .dark .fi-sidebar,
+    .dark aside.fi-sidebar {
+        background-color: var(--gk-sidebar) !important;
+    }
+    .dark .fi-topbar,
+    .dark .fi-topbar > nav {
+        background-color: #0d0e13 !important;
+    }
+    .dark .fi-section-content-ctn,
+    .dark .fi-wi-stats-overview-stat,
+    .dark .fi-ta-ctn {
+        background-color: #1e2028 !important;
+    }
+    .dark .fi-section-header-heading,
+    .dark .fi-wi-stats-overview-stat-label,
+    .dark .fi-wi-stats-overview-stat-value {
+        color: var(--gk-text-light) !important;
+    }
+
+    /* ============================================
+     * BRAND LOGO STYLING
+     * ============================================ */
+    /* Hide the dark mode duplicate - we only need one logo */
+    img.fi-logo.dark\:hidden {
+        display: flex !important;
+    }
+    img.fi-logo.hidden.dark\:flex {
+        display: none !important;
+    }
+
+    /* Sidebar: lock icon with text side by side */
+    .fi-sidebar-header img.fi-logo {
+        height: 36px !important;
+        width: auto !important;
+        border-radius: 0 !important;
+        object-fit: contain !important;
+    }
+    .fi-sidebar-header a {
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+    }
+    .fi-sidebar-header a::after {
+        content: 'GKeys';
+        font-weight: 800;
+        font-size: 1.2rem;
+        color: #f6f1e6;
+        letter-spacing: 0.02em;
+        white-space: nowrap;
+    }
+
+    /* Login page: show the lock icon larger and centered */
+    .fi-simple-header {
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+    }
+    .fi-simple-header img.fi-logo {
+        height: 80px !important;
+        width: auto !important;
+        border-radius: 0 !important;
+        object-fit: contain !important;
+        margin-bottom: 0.75rem !important;
+    }
+    /* Style the h1 heading */
+    .fi-simple-header .fi-simple-header-heading {
+        color: #f6f1e6 !important;
+    }
+    /* Add brand name between logo and Sign in */
+    .fi-simple-header .fi-simple-header-heading::before {
+        content: 'GKeys CMS';
+        display: block;
+        font-weight: 800;
+        font-size: 1.3rem;
+        color: #d2eb00;
+        letter-spacing: 0.02em;
+        margin-bottom: 0.5rem;
+    }
+
+    /* ============================================
+     * ACCENT HIGHLIGHT BAR ON SIDEBAR TOP
+     * ============================================ */
+    .fi-sidebar-header::after {
+        content: '';
+        display: block;
+        height: 2px;
+        background: linear-gradient(90deg, var(--gk-accent), var(--gk-primary));
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+    }
+    /* ============================================
+     * PERSISTENT BETA VERSION BAR
+     * ============================================ */
+    .fi-layout {
+        padding-bottom: 32px !important;
+    }
+    .gk-beta-bar {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 32px;
+        background-color: #0d0e13;
+        border-top: 1px solid var(--gk-sidebar-border);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        z-index: 50;
+        font-size: 0.72rem;
+        letter-spacing: 0.05em;
+        color: var(--gk-text-muted);
+    }
+    .gk-beta-bar .gk-beta-label {
+        background-color: var(--gk-accent);
+        color: var(--gk-primary);
+        font-weight: 700;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.65rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+    }
+    .gk-beta-bar .gk-version {
+        color: var(--gk-text-light);
+        font-weight: 500;
+    }
+</style>
+CSS;
+    }
+}

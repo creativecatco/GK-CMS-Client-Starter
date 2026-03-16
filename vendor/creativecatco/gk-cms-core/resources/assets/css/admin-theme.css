@@ -1,0 +1,463 @@
+    /*
+     * ============================================
+     * GKeys CMS Admin Theme
+     * ============================================
+     * Full brand palette:
+     *   Limes:   #cfff2e / #d2eb00
+     *   Creams:  #f6f1e6 / #f0ece1
+     *   Greens:  #3f524e / #293726
+     *   Darks:   #272a36 / #15171e
+     *   Maroons: #43302e / #3f1111
+     * ============================================
+     */
+
+    /* ---- ROOT BRAND VARIABLES ---- */
+    :root {
+        --gk-sidebar: #15171e;
+        --gk-sidebar-light: #272a36;
+        --gk-sidebar-border: #2e3140;
+        --gk-primary: #293726;
+        --gk-primary-light: #3f524e;
+        --gk-primary-hover: #344a30;
+        --gk-accent: #d2eb00;
+        --gk-accent-bright: #cfff2e;
+        --gk-accent-dim: #a8bc00;
+        --gk-danger: #3f1111;
+        --gk-danger-light: #43302e;
+        --gk-danger-hover: #4d1616;
+        --gk-bg-light: #f6f1e6;
+        --gk-bg-light-alt: #f0ece1;
+        --gk-text-muted: #9a958b;
+        --gk-text-light: #c5c0b5;
+    }
+
+    /* ============================================
+     * SIDEBAR - Dark blue-black (#15171e)
+     * ============================================ */
+    .fi-sidebar,
+    aside.fi-sidebar {
+        background-color: var(--gk-sidebar) !important;
+        border-right-color: var(--gk-sidebar-border) !important;
+    }
+    .fi-sidebar-header {
+        background-color: var(--gk-sidebar) !important;
+        border-bottom-color: var(--gk-sidebar-border) !important;
+    }
+    .fi-sidebar-nav,
+    .fi-sidebar-nav-groups {
+        background-color: var(--gk-sidebar) !important;
+    }
+    .fi-sidebar-footer {
+        background-color: var(--gk-sidebar) !important;
+        border-top-color: var(--gk-sidebar-border) !important;
+    }
+
+    /* Sidebar group labels - accent lime */
+    .fi-sidebar-group-label,
+    .fi-sidebar-group > button > span {
+        color: var(--gk-accent) !important;
+        opacity: 0.8;
+        font-size: 0.65rem !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.08em !important;
+    }
+
+    /* Sidebar item text */
+    .fi-sidebar-item-label,
+    .fi-sidebar-item a span,
+    .fi-sidebar-nav-flat-item-label {
+        color: var(--gk-text-light) !important;
+    }
+    /* Sidebar item icons */
+    .fi-sidebar-item-icon,
+    .fi-sidebar-item a svg,
+    .fi-sidebar-nav-flat-item-icon {
+        color: var(--gk-text-muted) !important;
+    }
+
+    /* Sidebar hover */
+    .fi-sidebar-item a:hover,
+    .fi-sidebar-item-button:hover,
+    .fi-sidebar-nav-flat-item-button:hover {
+        background-color: var(--gk-sidebar-light) !important;
+    }
+    .fi-sidebar-item a:hover span,
+    .fi-sidebar-item-button:hover .fi-sidebar-item-label,
+    .fi-sidebar-nav-flat-item-button:hover .fi-sidebar-nav-flat-item-label {
+        color: #ffffff !important;
+    }
+    .fi-sidebar-item a:hover svg,
+    .fi-sidebar-item-button:hover .fi-sidebar-item-icon,
+    .fi-sidebar-nav-flat-item-button:hover .fi-sidebar-nav-flat-item-icon {
+        color: var(--gk-accent) !important;
+    }
+
+    /* Sidebar active item */
+    .fi-sidebar-item-active a,
+    .fi-sidebar-item-active .fi-sidebar-item-button,
+    .fi-sidebar-item-active > a,
+    .fi-active {
+        background-color: var(--gk-sidebar-light) !important;
+    }
+    .fi-sidebar-item-active .fi-sidebar-item-label,
+    .fi-sidebar-item-active a span {
+        color: #ffffff !important;
+        font-weight: 600 !important;
+    }
+    .fi-sidebar-item-active .fi-sidebar-item-icon,
+    .fi-sidebar-item-active a svg {
+        color: var(--gk-accent) !important;
+    }
+
+    /* ============================================
+     * TOPBAR - Matches sidebar
+     * ============================================ */
+    .fi-topbar,
+    .fi-topbar > nav,
+    .fi-topbar nav {
+        background-color: var(--gk-sidebar) !important;
+        border-bottom: 2px solid var(--gk-primary) !important;
+    }
+
+    /* ============================================
+     * BODY / MAIN CONTENT AREA
+     * ============================================ */
+    .fi-body {
+        background-color: var(--gk-bg-light) !important;
+    }
+    .dark .fi-body {
+        background-color: #1a1c24 !important;
+    }
+
+    /* ============================================
+     * PRIMARY BUTTONS - Deep forest green (#293726)
+     * ============================================ */
+    .fi-btn-color-primary,
+    button[type="submit"].fi-btn,
+    .fi-ac-btn-action {
+        background-color: var(--gk-primary) !important;
+        border-color: var(--gk-primary) !important;
+        color: #ffffff !important;
+    }
+    .fi-btn-color-primary:hover,
+    button[type="submit"].fi-btn:hover,
+    .fi-ac-btn-action:hover {
+        background-color: var(--gk-primary-hover) !important;
+        border-color: var(--gk-primary-hover) !important;
+    }
+
+    /* ============================================
+     * SUCCESS BUTTONS - Lime (#d2eb00) with dark text
+     * ============================================ */
+    .fi-btn-color-success {
+        background-color: var(--gk-accent) !important;
+        border-color: var(--gk-accent) !important;
+        color: var(--gk-primary) !important;
+    }
+    .fi-btn-color-success:hover {
+        background-color: var(--gk-accent-bright) !important;
+        border-color: var(--gk-accent-bright) !important;
+        color: var(--gk-primary) !important;
+    }
+
+    /* ============================================
+     * DANGER / DELETE BUTTONS - Deep maroon (#3f1111)
+     * ============================================ */
+    .fi-btn-color-danger {
+        background-color: var(--gk-danger) !important;
+        border-color: var(--gk-danger) !important;
+        color: #ffffff !important;
+    }
+    .fi-btn-color-danger:hover {
+        background-color: var(--gk-danger-hover) !important;
+        border-color: var(--gk-danger-hover) !important;
+    }
+
+    /* ============================================
+     * WARNING BUTTONS - Lighter maroon (#43302e)
+     * ============================================ */
+    .fi-btn-color-warning {
+        background-color: var(--gk-danger-light) !important;
+        border-color: var(--gk-danger-light) !important;
+        color: var(--gk-bg-light) !important;
+    }
+    .fi-btn-color-warning:hover {
+        background-color: var(--gk-danger) !important;
+        border-color: var(--gk-danger) !important;
+    }
+
+    /* ============================================
+     * INFO BUTTONS - Lighter forest green (#3f524e)
+     * ============================================ */
+    .fi-btn-color-info {
+        background-color: var(--gk-primary-light) !important;
+        border-color: var(--gk-primary-light) !important;
+        color: #ffffff !important;
+    }
+    .fi-btn-color-info:hover {
+        background-color: var(--gk-primary) !important;
+        border-color: var(--gk-primary) !important;
+    }
+
+    /* ============================================
+     * LINKS & TEXT COLORS
+     * ============================================ */
+    .fi-link-color-primary,
+    .fi-ta-text-color-primary,
+    a.fi-link {
+        color: var(--gk-primary-light) !important;
+    }
+    .fi-link-color-primary:hover,
+    .fi-ta-text-color-primary:hover,
+    a.fi-link:hover {
+        color: var(--gk-primary) !important;
+    }
+
+    /* ============================================
+     * BADGES - Varied brand colors
+     * ============================================ */
+    /* Primary badge: deep green bg, white text */
+    .fi-badge-color-primary {
+        background-color: var(--gk-primary) !important;
+        color: #ffffff !important;
+    }
+    /* Success badge: lime bg, dark text for contrast */
+    .fi-badge-color-success {
+        background-color: var(--gk-accent) !important;
+        color: var(--gk-primary) !important;
+    }
+    /* Info badge: lighter green bg, white text */
+    .fi-badge-color-info {
+        background-color: var(--gk-primary-light) !important;
+        color: #ffffff !important;
+    }
+    /* Danger badge: deep maroon bg, white text */
+    .fi-badge-color-danger {
+        background-color: var(--gk-danger) !important;
+        color: #ffffff !important;
+    }
+    /* Warning badge: lighter maroon bg, cream text */
+    .fi-badge-color-warning {
+        background-color: var(--gk-danger-light) !important;
+        color: var(--gk-bg-light) !important;
+    }
+
+    /* ============================================
+     * TABS & NAVIGATION
+     * ============================================ */
+    .fi-tabs-item-active .fi-tabs-item-button {
+        border-color: var(--gk-accent) !important;
+    }
+    .fi-tabs-item-active .fi-tabs-item-label {
+        color: var(--gk-accent) !important;
+    }
+
+    /* ============================================
+     * FORM FOCUS RINGS
+     * ============================================ */
+    .fi-input-wrp:focus-within {
+        border-color: var(--gk-accent) !important;
+        box-shadow: 0 0 0 1px var(--gk-accent) !important;
+    }
+    input:focus, textarea:focus, select:focus {
+        --tw-ring-color: var(--gk-accent) !important;
+        border-color: var(--gk-accent) !important;
+    }
+
+    /* ============================================
+     * TOGGLE / CHECKBOX
+     * ============================================ */
+    .fi-toggle-on,
+    input[type="checkbox"]:checked {
+        background-color: var(--gk-primary) !important;
+        border-color: var(--gk-primary) !important;
+    }
+
+    /* ============================================
+     * TABLE ROW HOVER
+     * ============================================ */
+    .fi-ta-row:hover {
+        background-color: var(--gk-bg-light-alt) !important;
+    }
+    .dark .fi-ta-row:hover {
+        background-color: var(--gk-sidebar-light) !important;
+    }
+
+    /* ============================================
+     * CARDS & SECTIONS
+     * ============================================ */
+    .fi-section,
+    .fi-card {
+        border-color: #e0dbd0 !important;
+    }
+    .dark .fi-section,
+    .dark .fi-card {
+        border-color: var(--gk-sidebar-border) !important;
+    }
+
+    /* ============================================
+     * STATS WIDGETS - Varied colors per stat
+     * ============================================ */
+    .fi-wi-stats-overview-stat-color-primary {
+        border-left-color: var(--gk-primary) !important;
+    }
+    .fi-wi-stats-overview-stat-color-primary .fi-wi-stats-overview-stat-icon {
+        color: var(--gk-primary) !important;
+    }
+    .fi-wi-stats-overview-stat-color-info {
+        border-left-color: var(--gk-primary-light) !important;
+    }
+    .fi-wi-stats-overview-stat-color-info .fi-wi-stats-overview-stat-icon {
+        color: var(--gk-primary-light) !important;
+    }
+    .fi-wi-stats-overview-stat-color-success {
+        border-left-color: var(--gk-accent) !important;
+    }
+    .fi-wi-stats-overview-stat-color-success .fi-wi-stats-overview-stat-icon {
+        color: var(--gk-accent-dim) !important;
+    }
+    .fi-wi-stats-overview-stat-color-danger .fi-wi-stats-overview-stat-icon {
+        color: var(--gk-danger) !important;
+    }
+
+    /* ============================================
+     * NOTIFICATIONS
+     * ============================================ */
+    .fi-notification-danger {
+        background-color: var(--gk-danger) !important;
+    }
+    .fi-notification-success {
+        background-color: var(--gk-primary) !important;
+    }
+
+    /* ============================================
+     * MODAL CONFIRM DELETE
+     * ============================================ */
+    .fi-modal .fi-btn-color-danger {
+        background-color: var(--gk-danger) !important;
+    }
+    .fi-modal .fi-btn-color-danger:hover {
+        background-color: var(--gk-danger-hover) !important;
+    }
+
+    /* ============================================
+     * PAGINATION
+     * ============================================ */
+    .fi-pagination-item-active {
+        background-color: var(--gk-primary) !important;
+        color: #ffffff !important;
+    }
+
+    /* ============================================
+     * BREADCRUMBS
+     * ============================================ */
+    .fi-breadcrumbs a {
+        color: var(--gk-primary-light) !important;
+    }
+    .fi-breadcrumbs a:hover {
+        color: var(--gk-accent) !important;
+    }
+
+    /* ============================================
+     * HEADER ACTIONS
+     * ============================================ */
+    .fi-header-actions .fi-btn-color-primary {
+        background-color: var(--gk-primary) !important;
+    }
+    .fi-header-actions .fi-btn-color-primary:hover {
+        background-color: var(--gk-primary-hover) !important;
+    }
+
+    /* ============================================
+     * GLOBAL SEARCH
+     * ============================================ */
+    .fi-global-search-input:focus {
+        border-color: var(--gk-accent) !important;
+    }
+
+    /* ============================================
+     * LOGIN PAGE
+     * ============================================ */
+    .fi-simple-layout {
+        background-color: var(--gk-sidebar) !important;
+    }
+    .fi-simple-main-ctn {
+        background-color: var(--gk-sidebar-light) !important;
+        border: 1px solid var(--gk-sidebar-border) !important;
+    }
+    /* Login Sign In button: lime bg with dark text */
+    .fi-simple-main-ctn .fi-btn {
+        background-color: var(--gk-accent-bright) !important;
+        color: var(--gk-primary) !important;
+        font-weight: 700 !important;
+    }
+    .fi-simple-main-ctn .fi-btn:hover {
+        background-color: var(--gk-accent) !important;
+        color: var(--gk-sidebar) !important;
+    }
+
+    /* ============================================
+     * DARK MODE OVERRIDES
+     * ============================================ */
+    .dark .fi-sidebar,
+    .dark aside.fi-sidebar {
+        background-color: var(--gk-sidebar) !important;
+    }
+    .dark .fi-topbar,
+    .dark .fi-topbar > nav {
+        background-color: var(--gk-sidebar) !important;
+    }
+
+    /* Dark mode cards/sections background */
+    .dark .fi-section-content-ctn,
+    .dark .fi-wi-stats-overview-stat,
+    .dark .fi-ta-ctn {
+        background-color: #1e2028 !important;
+    }
+
+    /* Dark mode widget heading text */
+    .dark .fi-section-header-heading,
+    .dark .fi-wi-stats-overview-stat-label,
+    .dark .fi-wi-stats-overview-stat-value {
+        color: var(--gk-text-light) !important;
+    }
+
+    /* ============================================
+     * BRAND LOGO IN SIDEBAR
+     * ============================================ */
+    .fi-logo img {
+        height: 36px !important;
+        width: auto !important;
+        max-width: 180px !important;
+        object-fit: contain !important;
+    }
+    /* Hide the light-mode logo since we always use dark mode */
+    .fi-logo.dark\:hidden {
+        display: none !important;
+    }
+    .fi-sidebar-header .fi-logo.dark\:flex {
+        align-items: center !important;
+    }
+    /* Login page logo styling */
+    .fi-simple-layout .fi-logo.dark\:flex {
+        align-items: center !important;
+        justify-content: center !important;
+    }
+    .fi-simple-layout .fi-logo img {
+        height: 48px !important;
+        max-width: 220px !important;
+    }
+
+    /* ============================================
+     * ACCENT HIGHLIGHT BAR ON SIDEBAR TOP
+     * ============================================ */
+    .fi-sidebar-header::after {
+        content: '';
+        display: block;
+        height: 2px;
+        background: linear-gradient(90deg, var(--gk-accent), var(--gk-primary));
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+    }
