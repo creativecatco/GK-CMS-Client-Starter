@@ -26,7 +26,11 @@ if (file_exists($envFile) && filesize($envFile) > 50) {
 
 // ─── Handle AJAX API Requests ───────────────────────────────────────────────
 if (isset($_GET['action'])) {
+    // Prevent caching of API responses
     header('Content-Type: application/json');
+    header('Cache-Control: no-cache, no-store, must-revalidate');
+    header('Pragma: no-cache');
+    header('Expires: 0');
 
     switch ($_GET['action']) {
         case 'check_system':
@@ -38,6 +42,7 @@ if (isset($_GET['action'])) {
             exit;
 
         case 'install':
+        case 'run_install':
             echo json_encode(runInstall($_POST));
             exit;
 
@@ -241,9 +246,20 @@ function runInstall(array $data): array {
 
         // ─── Step 1: Download the release zip ───
         $log[] = '▸ Downloading GKeys CMS...';
-        $downloadUrl = $data['download_url'] ?? '';
+
+        // Always re-fetch the latest version from GitHub to avoid stale cached URLs
+        $latestInfo = getLatestVersion();
+        if ($latestInfo['success'] && !empty($latestInfo['download_url'])) {
+            $downloadUrl = $latestInfo['download_url'];
+            $log[] = '  Latest version: ' . ($latestInfo['version'] ?? 'unknown');
+        } else {
+            // Fall back to client-provided URL
+            $downloadUrl = $data['download_url'] ?? '';
+            $log[] = '  Using client-provided URL (API fallback).';
+        }
+        $log[] = '  URL: ' . $downloadUrl;
         if (empty($downloadUrl)) {
-            return ['success' => false, 'error' => 'No download URL provided.', 'log' => $log];
+            return ['success' => false, 'error' => 'No download URL available. Could not reach GitHub.', 'log' => $log];
         }
 
         $zipPath = $installBase . '/gkeys-cms-download.zip';
@@ -353,6 +369,13 @@ function runInstall(array $data): array {
 
         // Clean up zip file
         @unlink($zipPath);
+
+        // Log what version was extracted
+        $extractedComposer = $installBase . '/vendor/creativecatco/gk-cms-core/composer.json';
+        if (file_exists($extractedComposer)) {
+            $coreJson = json_decode(file_get_contents($extractedComposer), true);
+            $log[] = '  Core version extracted: ' . ($coreJson['version'] ?? 'unknown');
+        }
 
         // ─── Step 3: Move public/ files to public_html ───
         $log[] = '▸ Setting up web directory...';
@@ -668,6 +691,9 @@ function runInstall(array $data): array {
         } else {
             $log[] = '  ✓ All core files verified.';
         }
+
+        // Write install log to file for debugging
+        @file_put_contents($installBase . '/install_debug.log', implode("\n", $log));
 
         // ─── Done ───
         $log[] = '';
@@ -1420,7 +1446,7 @@ HTACCESS;
     }
 
     function checkSystem() {
-        fetch('?action=check_system')
+        fetch('?action=check_system&_t=' + Date.now())
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 var html = '<table class="check-table">';
@@ -1447,7 +1473,7 @@ HTACCESS;
     }
 
     function fetchLatestVersion() {
-        fetch('?action=get_latest_version')
+        fetch('?action=get_latest_version&_t=' + Date.now())
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (data.success) {
@@ -1474,7 +1500,7 @@ HTACCESS;
         formData.append('db_user', document.getElementById('db_user').value);
         formData.append('db_pass', document.getElementById('db_pass').value);
 
-        fetch('?action=test_database', { method: 'POST', body: formData })
+        fetch('?action=test_database&_t=' + Date.now(), { method: 'POST', body: formData })
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 btn.disabled = false;
@@ -1543,8 +1569,7 @@ HTACCESS;
         var logEl = document.getElementById('install-log');
         logEl.textContent = 'Starting installation...\n';
 
-        fetch('?action=install', { method: 'POST', body: formData })
-            .then(function(r) { return r.json(); })
+        fetch('?action=run_install&_t=' + Date.now(), { method: 'POST', body: formData })         .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (data.log) {
                     logEl.textContent = data.log.join('\n');
