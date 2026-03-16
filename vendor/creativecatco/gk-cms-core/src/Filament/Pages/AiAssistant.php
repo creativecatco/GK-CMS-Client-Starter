@@ -3,6 +3,7 @@
 namespace CreativeCatCo\GkCmsCore\Filament\Pages;
 
 use CreativeCatCo\GkCmsCore\Services\Ai\LlmProviderFactory;
+use CreativeCatCo\GkCmsCore\Models\Setting;
 use Filament\Pages\Page;
 
 class AiAssistant extends Page
@@ -32,8 +33,9 @@ class AiAssistant extends Page
     {
         return [
             'isConfigured' => LlmProviderFactory::isConfigured(),
-            'provider' => \CreativeCatCo\GkCmsCore\Models\Setting::get('ai_provider', 'Not set'),
-            'model' => \CreativeCatCo\GkCmsCore\Models\Setting::get('ai_model', 'Not set'),
+            'provider' => Setting::get('ai_provider', 'Not set'),
+            'model' => Setting::get('ai_model', 'Not set'),
+            'configuredProviders' => LlmProviderFactory::getConfiguredProviders(),
         ];
     }
 }

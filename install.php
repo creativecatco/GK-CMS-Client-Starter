@@ -5,12 +5,12 @@
  * Single-file web installer for GKeys CMS.
  * Upload this file to your web server's document root and visit it in a browser.
  *
- * @version 1.1.0
+ * @version 1.2.0
  * @author  Growth Keys / CreativeCat Co.
  */
 
 // ─── Configuration ──────────────────────────────────────────────────────────
-define('GKEYS_INSTALLER_VERSION', '1.1.0');
+define('GKEYS_INSTALLER_VERSION', '1.2.0');
 define('GKEYS_MIN_PHP', '8.2.0');
 define('GKEYS_RELEASE_API', 'https://api.github.com/repos/creativecatco/GK-CMS-Client-Starter/releases/latest');
 define('GKEYS_INSTALL_DIR', dirname(__FILE__)); // public_html (web root)
@@ -227,8 +227,13 @@ function getLatestVersion(): array {
     ];
 }
 
+// ─── Main Install Function ──────────────────────────────────────────────────
+
 function runInstall(array $data): array {
-    set_time_limit(300);
+    // Try to extend time limit (may not work on all hosts)
+    @set_time_limit(600);
+    @ini_set('memory_limit', '512M');
+
     $log = [];
 
     try {
@@ -241,62 +246,120 @@ function runInstall(array $data): array {
             return ['success' => false, 'error' => 'No download URL provided.', 'log' => $log];
         }
 
-        $zipPath = GKEYS_INSTALL_DIR . '/gkeys-cms-download.zip';
+        $zipPath = $installBase . '/gkeys-cms-download.zip';
         $downloaded = downloadFile($downloadUrl, $zipPath);
         if (!$downloaded) {
             return ['success' => false, 'error' => 'Failed to download the release. Check your server\'s internet connectivity.', 'log' => $log];
         }
-        $log[] = '  Download complete (' . round(filesize($zipPath) / 1024 / 1024, 1) . ' MB)';
+        $zipSize = filesize($zipPath);
+        $log[] = '  ✓ Download complete (' . round($zipSize / 1024 / 1024, 1) . ' MB)';
+
+        if ($zipSize < 1000000) {
+            @unlink($zipPath);
+            return ['success' => false, 'error' => 'Downloaded file is too small (' . round($zipSize / 1024) . ' KB). The download may have failed or been blocked.', 'log' => $log];
+        }
 
         // ─── Step 2: Extract the zip ───
         $log[] = '▸ Extracting files...';
-        $zip = new ZipArchive();
-        if ($zip->open($zipPath) !== true) {
-            @unlink($zipPath);
-            return ['success' => false, 'error' => 'Failed to open the downloaded zip file.', 'log' => $log];
+        $extracted = false;
+
+        // Method 1: Use system unzip command (fastest, most memory-efficient)
+        $unzipBin = trim(shell_exec('which unzip 2>/dev/null') ?? '');
+        if (!empty($unzipBin) && is_executable($unzipBin)) {
+            $log[] = '  Using system unzip...';
+            $output = shell_exec("cd " . escapeshellarg($installBase) . " && unzip -o -q " . escapeshellarg($zipPath) . " 2>&1");
+            // Verify extraction by checking for key files
+            if (file_exists($installBase . '/artisan') || file_exists($installBase . '/vendor/autoload.php')) {
+                $extracted = true;
+                $log[] = '  ✓ Extraction complete (system unzip).';
+            } else {
+                $log[] = '  ⚠ System unzip ran but files not found at expected location. Output: ' . substr(trim($output ?? ''), 0, 200);
+            }
         }
 
-        $tempDir = GKEYS_INSTALL_DIR . '/gkeys-cms-temp-' . time();
-        $zip->extractTo($tempDir);
-        $zip->close();
-        $log[] = '  Extraction complete.';
+        // Method 2: Use PHP ZipArchive (fallback)
+        if (!$extracted) {
+            $log[] = '  Trying PHP ZipArchive...';
+            if (!class_exists('ZipArchive')) {
+                @unlink($zipPath);
+                return ['success' => false, 'error' => 'Neither unzip command nor PHP ZipArchive is available. Cannot extract files.', 'log' => $log];
+            }
 
-        // ─── Step 3: Move files to the correct locations ───
-        $log[] = '▸ Installing files...';
+            $zip = new ZipArchive();
+            $openResult = $zip->open($zipPath);
+            if ($openResult !== true) {
+                @unlink($zipPath);
+                return ['success' => false, 'error' => 'Failed to open zip file. Error code: ' . $openResult, 'log' => $log];
+            }
 
-        $sourceDir = $tempDir . '/gkeys-cms';
-        if (!is_dir($sourceDir)) {
-            $dirs = glob($tempDir . '/*', GLOB_ONLYDIR);
-            $sourceDir = !empty($dirs) ? $dirs[0] : $tempDir;
+            $numFiles = $zip->numFiles;
+            $log[] = '  Extracting ' . $numFiles . ' files...';
+
+            // Extract directly to installBase (zip has no wrapper directory)
+            $result = $zip->extractTo($installBase);
+            $zip->close();
+
+            if (!$result) {
+                @unlink($zipPath);
+                return ['success' => false, 'error' => 'ZipArchive::extractTo() failed. This may be due to memory limits or disk space. Try extracting manually via SSH.', 'log' => $log];
+            }
+
+            // Verify extraction
+            if (file_exists($installBase . '/artisan') || file_exists($installBase . '/vendor/autoload.php')) {
+                $extracted = true;
+                $log[] = '  ✓ Extraction complete (PHP ZipArchive).';
+            } else {
+                $log[] = '  ⚠ ZipArchive reported success but key files not found.';
+            }
         }
 
-        // Move Laravel app files to the parent directory
-        $appDirs = ['app', 'bootstrap', 'config', 'database', 'resources', 'routes', 'storage', 'vendor'];
-        foreach ($appDirs as $dir) {
-            if (is_dir($sourceDir . '/' . $dir)) {
-                $destDir = $installBase . '/' . $dir;
-                if (is_dir($destDir)) {
-                    recursiveCopy($sourceDir . '/' . $dir, $destDir);
+        // Method 3: Try extracting to temp dir and moving (in case zip has a wrapper dir)
+        if (!$extracted) {
+            $log[] = '  Trying temp directory extraction...';
+            $tempDir = $installBase . '/gkeys-cms-temp-' . time();
+            @mkdir($tempDir, 0755, true);
+
+            $zip = new ZipArchive();
+            if ($zip->open($zipPath) === true) {
+                $zip->extractTo($tempDir);
+                $zip->close();
+
+                // Find the source directory
+                $sourceDir = $tempDir;
+                if (is_dir($tempDir . '/gkeys-cms')) {
+                    $sourceDir = $tempDir . '/gkeys-cms';
                 } else {
-                    rename($sourceDir . '/' . $dir, $destDir);
+                    $dirs = glob($tempDir . '/*', GLOB_ONLYDIR);
+                    if (!empty($dirs) && count($dirs) === 1) {
+                        $sourceDir = $dirs[0];
+                    }
                 }
+
+                // Move files
+                if (file_exists($sourceDir . '/artisan')) {
+                    moveExtractedFiles($sourceDir, $installBase, GKEYS_INSTALL_DIR);
+                    $extracted = true;
+                    $log[] = '  ✓ Extraction complete (temp directory method).';
+                }
+
+                recursiveDelete($tempDir);
             }
         }
 
-        // Move root files to parent directory
-        $rootFiles = ['artisan', 'composer.json', 'composer.lock', '.env.example', '.editorconfig', 'package.json'];
-        foreach ($rootFiles as $file) {
-            if (file_exists($sourceDir . '/' . $file)) {
-                copy($sourceDir . '/' . $file, $installBase . '/' . $file);
-            }
+        if (!$extracted) {
+            @unlink($zipPath);
+            return ['success' => false, 'error' => 'All extraction methods failed. Please extract the zip manually via SSH or contact support.', 'log' => $log];
         }
 
-        // Move public directory contents to the current directory (public_html)
-        if (is_dir($sourceDir . '/public')) {
-            recursiveCopy($sourceDir . '/public', GKEYS_INSTALL_DIR);
-        }
+        // Clean up zip file
+        @unlink($zipPath);
 
-        $log[] = '  Files installed successfully.';
+        // ─── Step 3: Move public/ files to public_html ───
+        $log[] = '▸ Setting up web directory...';
+        if (is_dir($installBase . '/public')) {
+            recursiveCopy($installBase . '/public', GKEYS_INSTALL_DIR);
+            $log[] = '  ✓ Public files copied to web root.';
+        }
 
         // ─── Step 4: Create ALL required directories ───
         $log[] = '▸ Creating required directories...';
@@ -304,6 +367,8 @@ function runInstall(array $data): array {
             $installBase . '/storage',
             $installBase . '/storage/app',
             $installBase . '/storage/app/public',
+            $installBase . '/storage/app/public/cms',
+            $installBase . '/storage/app/public/cms/media',
             $installBase . '/storage/framework',
             $installBase . '/storage/framework/cache',
             $installBase . '/storage/framework/cache/data',
@@ -320,7 +385,7 @@ function runInstall(array $data): array {
             }
         }
 
-        // Create .gitignore files in storage directories to match Laravel defaults
+        // Create .gitignore files in storage directories
         $gitignoreContent = "*\n!.gitignore\n";
         $gitignoreDirs = [
             $installBase . '/storage/app',
@@ -336,8 +401,7 @@ function runInstall(array $data): array {
                 @file_put_contents($gFile, $gitignoreContent);
             }
         }
-
-        $log[] = '  Directories created.';
+        $log[] = '  ✓ Directories created.';
 
         // ─── Step 5: Set permissions ───
         $log[] = '▸ Setting file permissions...';
@@ -345,8 +409,10 @@ function runInstall(array $data): array {
         @chmod($installBase . '/bootstrap/cache', 0775);
         recursiveChmod($installBase . '/storage', 0775, 0664);
         recursiveChmod($installBase . '/bootstrap/cache', 0775, 0664);
-        @chmod($installBase . '/artisan', 0755);
-        $log[] = '  Permissions set.';
+        if (file_exists($installBase . '/artisan')) {
+            @chmod($installBase . '/artisan', 0755);
+        }
+        $log[] = '  ✓ Permissions set.';
 
         // ─── Step 6: Create .env file ───
         $log[] = '▸ Configuring environment...';
@@ -394,7 +460,7 @@ function runInstall(array $data): array {
         $envContent .= "CMS_RELEASE_REPO=creativecatco/GK-CMS-Client-Starter\n";
 
         file_put_contents($installBase . '/.env', $envContent);
-        $log[] = '  Environment configured.';
+        $log[] = '  ✓ Environment configured.';
 
         // ─── Step 7: Fix the index.php to point to the correct paths ───
         $log[] = '▸ Configuring web entry point...';
@@ -405,17 +471,17 @@ function runInstall(array $data): array {
         if (!file_exists(GKEYS_INSTALL_DIR . '/.htaccess')) {
             file_put_contents(GKEYS_INSTALL_DIR . '/.htaccess', createHtaccess());
         }
-        $log[] = '  Web entry point configured.';
+        $log[] = '  ✓ Web entry point configured.';
 
         // ─── Step 8: Fix User model to implement FilamentUser ───
         $log[] = '▸ Configuring User model for admin panel access...';
         patchUserModel($installBase);
-        $log[] = '  User model configured.';
+        $log[] = '  ✓ User model configured.';
 
         // ─── Step 9: Clear default welcome route ───
         $log[] = '▸ Configuring routes...';
         patchWebRoutes($installBase);
-        $log[] = '  Routes configured.';
+        $log[] = '  ✓ Routes configured.';
 
         // ─── Step 10: Create storage symlink ───
         $log[] = '▸ Creating storage symlink...';
@@ -423,16 +489,28 @@ function runInstall(array $data): array {
         if (!file_exists($storageLink)) {
             @symlink($installBase . '/storage/app/public', $storageLink);
         }
-        $log[] = '  Storage linked.';
+        $log[] = '  ✓ Storage linked.';
 
         // ─── Step 11: Run migrations ───
         $log[] = '▸ Running database migrations...';
         $phpBinary = PHP_BINARY ?: 'php';
         $artisan = $installBase . '/artisan';
 
-        $migrationOutput = shell_exec("cd {$installBase} && {$phpBinary} {$artisan} migrate --force 2>&1");
+        if (!file_exists($artisan)) {
+            $log[] = '  ✗ ERROR: artisan file not found at ' . $artisan;
+            return ['success' => false, 'error' => 'Laravel artisan file not found. The extraction may have failed.', 'log' => $log];
+        }
+
+        $migrationOutput = shell_exec("cd " . escapeshellarg($installBase) . " && " . escapeshellarg($phpBinary) . " " . escapeshellarg($artisan) . " migrate --force 2>&1");
         $migrationResult = trim($migrationOutput ?? '');
-        $log[] = '  ' . $migrationResult;
+        if (!empty($migrationResult)) {
+            // Show only the last few lines to keep log clean
+            $lines = explode("\n", $migrationResult);
+            $lastLines = array_slice($lines, -5);
+            foreach ($lastLines as $line) {
+                $log[] = '  ' . $line;
+            }
+        }
 
         // Verify migrations actually ran by checking if users table exists
         try {
@@ -443,16 +521,16 @@ function runInstall(array $data): array {
             $tables = $pdo->query("SHOW TABLES")->fetchAll(PDO::FETCH_COLUMN);
 
             if (!in_array('users', $tables)) {
-                $log[] = '  ⚠ WARNING: Migrations may have failed. Attempting direct migration...';
-                // Try running migration again with error output
-                $retryOutput = shell_exec("cd {$installBase} && {$phpBinary} {$artisan} migrate --force --no-interaction 2>&1");
+                $log[] = '  ⚠ WARNING: Migrations may have failed. Attempting retry...';
+                $retryOutput = shell_exec("cd " . escapeshellarg($installBase) . " && " . escapeshellarg($phpBinary) . " " . escapeshellarg($artisan) . " migrate --force --no-interaction 2>&1");
                 $log[] = '  Retry: ' . trim($retryOutput ?? 'no output');
 
-                // Check again
                 $tables = $pdo->query("SHOW TABLES")->fetchAll(PDO::FETCH_COLUMN);
                 if (!in_array('users', $tables)) {
                     $log[] = '  ✗ CRITICAL: Database tables could not be created. Found ' . count($tables) . ' tables.';
                     $log[] = '  Please run manually via SSH: php artisan migrate --force';
+                } else {
+                    $log[] = '  ✓ Database tables verified on retry (' . count($tables) . ' tables).';
                 }
             } else {
                 $log[] = '  ✓ Database tables verified (' . count($tables) . ' tables created).';
@@ -463,10 +541,15 @@ function runInstall(array $data): array {
 
         // ─── Step 12: Seed default content ───
         $log[] = '▸ Creating default content...';
-        $seedOutput = shell_exec("cd {$installBase} && {$phpBinary} {$artisan} gkeys:seed-content 2>&1");
-        $log[] = '  ' . trim($seedOutput ?? 'completed');
+        $seedOutput = shell_exec("cd " . escapeshellarg($installBase) . " && " . escapeshellarg($phpBinary) . " " . escapeshellarg($artisan) . " gkeys:seed-content 2>&1");
+        $seedResult = trim($seedOutput ?? '');
+        if (!empty($seedResult)) {
+            $log[] = '  ' . $seedResult;
+        } else {
+            $log[] = '  ✓ Default content created.';
+        }
 
-        // ─── Step 13: Create admin user using prepared statements ───
+        // ─── Step 13: Create admin user ───
         $log[] = '▸ Creating admin account...';
         $adminName = $data['admin_name'] ?? 'Admin';
         $adminEmail = $data['admin_email'] ?? 'admin@example.com';
@@ -510,13 +593,11 @@ function runInstall(array $data): array {
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             ]);
 
-            // Find the "Home" page
             $stmt = $pdo->prepare("SELECT id FROM pages WHERE slug = 'home' OR title = 'Home' LIMIT 1");
             $stmt->execute();
             $homePage = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if ($homePage) {
-                // Set it as the home page in settings
                 $stmt = $pdo->prepare(
                     "INSERT INTO settings (`key`, `value`, created_at, updated_at)
                      VALUES ('home_page', :page_id, NOW(), NOW())
@@ -533,22 +614,60 @@ function runInstall(array $data): array {
 
         // ─── Step 15: Publish assets and clear caches ───
         $log[] = '▸ Publishing assets...';
-        shell_exec("cd {$installBase} && {$phpBinary} {$artisan} vendor:publish --tag=cms-assets --force 2>&1");
-        shell_exec("cd {$installBase} && {$phpBinary} {$artisan} cms:safe-publish-templates 2>&1");
-        $log[] = '  Assets published.';
+        shell_exec("cd " . escapeshellarg($installBase) . " && " . escapeshellarg($phpBinary) . " " . escapeshellarg($artisan) . " vendor:publish --tag=cms-assets --force 2>&1");
+        shell_exec("cd " . escapeshellarg($installBase) . " && " . escapeshellarg($phpBinary) . " " . escapeshellarg($artisan) . " cms:safe-publish-templates 2>&1");
+
+        // Copy published assets to public_html too
+        if (is_dir($installBase . '/public/vendor')) {
+            recursiveCopy($installBase . '/public/vendor', GKEYS_INSTALL_DIR . '/vendor');
+        }
+        if (is_dir($installBase . '/public/css')) {
+            recursiveCopy($installBase . '/public/css', GKEYS_INSTALL_DIR . '/css');
+        }
+        if (is_dir($installBase . '/public/js')) {
+            recursiveCopy($installBase . '/public/js', GKEYS_INSTALL_DIR . '/js');
+        }
+        if (is_dir($installBase . '/public/build')) {
+            recursiveCopy($installBase . '/public/build', GKEYS_INSTALL_DIR . '/build');
+        }
+        $log[] = '  ✓ Assets published.';
 
         $log[] = '▸ Clearing caches...';
-        shell_exec("cd {$installBase} && {$phpBinary} {$artisan} cache:clear 2>&1");
-        shell_exec("cd {$installBase} && {$phpBinary} {$artisan} config:clear 2>&1");
-        shell_exec("cd {$installBase} && {$phpBinary} {$artisan} view:clear 2>&1");
-        shell_exec("cd {$installBase} && {$phpBinary} {$artisan} route:clear 2>&1");
-        $log[] = '  Caches cleared.';
+        shell_exec("cd " . escapeshellarg($installBase) . " && " . escapeshellarg($phpBinary) . " " . escapeshellarg($artisan) . " cache:clear 2>&1");
+        shell_exec("cd " . escapeshellarg($installBase) . " && " . escapeshellarg($phpBinary) . " " . escapeshellarg($artisan) . " config:clear 2>&1");
+        shell_exec("cd " . escapeshellarg($installBase) . " && " . escapeshellarg($phpBinary) . " " . escapeshellarg($artisan) . " view:clear 2>&1");
+        shell_exec("cd " . escapeshellarg($installBase) . " && " . escapeshellarg($phpBinary) . " " . escapeshellarg($artisan) . " route:clear 2>&1");
+        $log[] = '  ✓ Caches cleared.';
 
-        // ─── Step 16: Cleanup ───
+        // ─── Step 16: Final cleanup ───
         $log[] = '▸ Cleaning up...';
-        @unlink($zipPath);
-        recursiveDelete($tempDir);
-        $log[] = '  Temporary files removed.';
+        // Remove any leftover temp directories
+        foreach (glob($installBase . '/gkeys-cms-temp-*') as $tempDir) {
+            if (is_dir($tempDir)) {
+                recursiveDelete($tempDir);
+            }
+        }
+        // Remove the download zip if still present
+        if (file_exists($zipPath)) {
+            @unlink($zipPath);
+        }
+        $log[] = '  ✓ Temporary files removed.';
+
+        // ─── Step 17: Final verification ───
+        $log[] = '▸ Verifying installation...';
+        $verifyErrors = [];
+        if (!file_exists($installBase . '/vendor/autoload.php')) $verifyErrors[] = 'vendor/autoload.php missing';
+        if (!file_exists($installBase . '/artisan')) $verifyErrors[] = 'artisan missing';
+        if (!file_exists($installBase . '/.env')) $verifyErrors[] = '.env missing';
+        if (!is_dir($installBase . '/storage/framework/views')) $verifyErrors[] = 'storage/framework/views missing';
+        if (!is_dir($installBase . '/bootstrap/cache')) $verifyErrors[] = 'bootstrap/cache missing';
+        if (!file_exists(GKEYS_INSTALL_DIR . '/index.php')) $verifyErrors[] = 'public_html/index.php missing';
+
+        if (!empty($verifyErrors)) {
+            $log[] = '  ⚠ Verification warnings: ' . implode(', ', $verifyErrors);
+        } else {
+            $log[] = '  ✓ All core files verified.';
+        }
 
         // ─── Done ───
         $log[] = '';
@@ -577,9 +696,10 @@ function downloadFile(string $url, string $dest): bool {
         $fp = fopen($dest, 'w');
         curl_setopt_array($ch, [
             CURLOPT_FILE => $fp,
-            CURLOPT_TIMEOUT => 300,
+            CURLOPT_TIMEOUT => 600,
+            CURLOPT_CONNECTTIMEOUT => 30,
             CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_MAXREDIRS => 5,
+            CURLOPT_MAXREDIRS => 10,
             CURLOPT_HTTPHEADER => ['User-Agent: GKeys-CMS-Installer/' . GKEYS_INSTALLER_VERSION],
         ]);
         $result = curl_exec($ch);
@@ -597,7 +717,7 @@ function downloadFile(string $url, string $dest): bool {
     $context = stream_context_create([
         'http' => [
             'header' => "User-Agent: GKeys-CMS-Installer/" . GKEYS_INSTALLER_VERSION . "\r\n",
-            'timeout' => 300,
+            'timeout' => 600,
             'follow_location' => true,
         ],
     ]);
@@ -608,6 +728,34 @@ function downloadFile(string $url, string $dest): bool {
     }
 
     return false;
+}
+
+function moveExtractedFiles(string $sourceDir, string $installBase, string $publicHtml): void {
+    // Move Laravel app directories
+    $appDirs = ['app', 'bootstrap', 'config', 'database', 'resources', 'routes', 'storage', 'vendor', 'tests'];
+    foreach ($appDirs as $dir) {
+        if (is_dir($sourceDir . '/' . $dir)) {
+            $destDir = $installBase . '/' . $dir;
+            if (is_dir($destDir)) {
+                recursiveCopy($sourceDir . '/' . $dir, $destDir);
+            } else {
+                rename($sourceDir . '/' . $dir, $destDir);
+            }
+        }
+    }
+
+    // Move root files
+    $rootFiles = ['artisan', 'composer.json', 'composer.lock', '.env.example', '.editorconfig', 'package.json', 'phpunit.xml', 'vite.config.js'];
+    foreach ($rootFiles as $file) {
+        if (file_exists($sourceDir . '/' . $file)) {
+            copy($sourceDir . '/' . $file, $installBase . '/' . $file);
+        }
+    }
+
+    // Move public directory contents to public_html
+    if (is_dir($sourceDir . '/public')) {
+        recursiveCopy($sourceDir . '/public', $publicHtml);
+    }
 }
 
 function recursiveCopy(string $src, string $dst): void {
@@ -636,12 +784,12 @@ function recursiveDelete(string $dir): void {
     );
     foreach ($files as $file) {
         if ($file->isDir()) {
-            rmdir($file->getRealPath());
+            @rmdir($file->getRealPath());
         } else {
-            unlink($file->getRealPath());
+            @unlink($file->getRealPath());
         }
     }
-    rmdir($dir);
+    @rmdir($dir);
 }
 
 function recursiveChmod(string $dir, int $dirPerm, int $filePerm): void {
@@ -661,7 +809,6 @@ function recursiveChmod(string $dir, int $dirPerm, int $filePerm): void {
 
 /**
  * Patch the User model to implement FilamentUser interface.
- * This is required for Filament 3 admin panel access in production.
  */
 function patchUserModel(string $installBase): void {
     $userModelPath = $installBase . '/app/Models/User.php';
@@ -696,7 +843,7 @@ function patchUserModel(string $installBase): void {
 }
 
 /**
- * Remove the default Laravel welcome route that conflicts with CMS routes.
+ * Remove the default Laravel welcome route.
  */
 function patchWebRoutes(string $installBase): void {
     $routesPath = $installBase . '/routes/web.php';
@@ -704,7 +851,6 @@ function patchWebRoutes(string $installBase): void {
 
     $content = file_get_contents($routesPath);
 
-    // Remove the default welcome route
     if (strpos($content, "return view('welcome')") !== false) {
         $content = preg_replace(
             '/Route::get\s*\(\s*[\'"]\/[\'"]\s*,\s*function\s*\(\)\s*\{[^}]*return\s+view\s*\(\s*[\'"]welcome[\'"]\s*\)\s*;[^}]*\}\s*\)\s*;/s',
@@ -1221,7 +1367,7 @@ HTACCESS;
         <div class="step-content" id="step-5">
             <div class="card" id="installing-card">
                 <h2>Installing GKeys CMS</h2>
-                <p class="desc">Please wait while the CMS is being installed. This may take a few minutes.</p>
+                <p class="desc">Please wait while the CMS is being installed. This may take a few minutes depending on your server speed.</p>
                 <div class="log-output" id="install-log">Preparing installation...</div>
             </div>
             <div class="card" id="complete-card" style="display:none;">
@@ -1416,7 +1562,7 @@ HTACCESS;
                 }
             })
             .catch(function(err) {
-                logEl.textContent += '\n\n✗ ERROR: ' + err.message;
+                logEl.textContent += '\n\n✗ ERROR: ' + err.message + '\n\nThis may be caused by a timeout. If the installation was partially completed, try accessing /admin directly.';
                 logEl.style.color = 'var(--error)';
             });
     }

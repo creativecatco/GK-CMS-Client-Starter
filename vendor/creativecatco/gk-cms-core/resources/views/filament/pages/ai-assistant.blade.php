@@ -473,7 +473,58 @@
                                 </button>
                             </div>
                             <div class="flex items-center justify-between mt-2 text-xs text-gray-400 dark:text-gray-500">
-                                <span>Provider: <span class="font-medium">{{ ucfirst($provider) }}</span> / <span class="font-medium">{{ $model }}</span></span>
+                                {{-- Model Picker Dropdown --}}
+                                <div class="relative" @click.outside="showModelPicker = false">
+                                    <button @click="showModelPicker = !showModelPicker"
+                                            class="flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition text-gray-500 dark:text-gray-400"
+                                            :disabled="isStreaming">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                                        </svg>
+                                        <span class="font-medium" x-text="getModelLabel()"></span>
+                                        <svg class="w-3 h-3 transition-transform" :class="showModelPicker ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                                        </svg>
+                                    </button>
+
+                                    {{-- Dropdown Panel --}}
+                                    <div x-show="showModelPicker" x-transition
+                                         class="absolute bottom-full left-0 mb-2 w-72 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden z-50">
+                                        <div class="p-2 border-b border-gray-100 dark:border-gray-700">
+                                            <span class="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Select Model</span>
+                                        </div>
+                                        <div class="max-h-64 overflow-y-auto p-1">
+                                            <template x-for="prov in configuredProviders" :key="prov.slug">
+                                                <div class="mb-1">
+                                                    <div class="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500" x-text="prov.name"></div>
+                                                    <template x-for="model in prov.models" :key="model.id">
+                                                        <button @click="selectModel(prov.slug, model.id)"
+                                                                class="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition"
+                                                                :class="selectedProvider === prov.slug && selectedModel === model.id
+                                                                    ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 font-medium'
+                                                                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'">
+                                                            <div class="w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0"
+                                                                 :class="selectedProvider === prov.slug && selectedModel === model.id
+                                                                     ? 'border-primary-500'
+                                                                     : 'border-gray-300 dark:border-gray-600'">
+                                                                <div x-show="selectedProvider === prov.slug && selectedModel === model.id"
+                                                                     class="w-2 h-2 rounded-full bg-primary-500"></div>
+                                                            </div>
+                                                            <span x-text="model.name"></span>
+                                                        </button>
+                                                    </template>
+                                                </div>
+                                            </template>
+                                            <template x-if="configuredProviders.length === 0">
+                                                <div class="px-3 py-4 text-center text-gray-400 text-sm">
+                                                    No AI providers configured.<br>
+                                                    <a href="/admin/settings" class="text-primary-500 hover:underline">Add API keys in Settings</a>
+                                                </div>
+                                            </template>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <span>Press Enter to send, Shift+Enter for new line</span>
                             </div>
                         </div>
@@ -606,6 +657,12 @@
                 activeToolName: '',
                 thinkingSteps: [],     // Array of {text, status} for the activity log
 
+                // LLM provider/model selection
+                configuredProviders: @json($configuredProviders ?? []),
+                selectedProvider: '',   // Will be set in init()
+                selectedModel: '',      // Will be set in init()
+                showModelPicker: false,
+
                 // Plan tracking state
                 activePlan: null,        // {steps: [{text, status, toolMatch}], totalSteps: 0}
                 currentPlanStep: 0,      // Current step being executed
@@ -625,6 +682,7 @@
 
                 // Initialize
                 init() {
+                    this.initProviderSelection();
                     this.loadConversations();
                     this.loadPreviewPages();
                     this.loadMarkedJs();
@@ -661,6 +719,37 @@
                             this.$refs.messageInput.focus();
                         }
                     });
+                },
+
+                // Initialize provider/model selection from configured providers
+                initProviderSelection() {
+                    if (!this.configuredProviders || this.configuredProviders.length === 0) return;
+                    // Find the default provider
+                    const defaultProv = this.configuredProviders.find(p => p.is_default) || this.configuredProviders[0];
+                    this.selectedProvider = defaultProv.slug;
+                    // Find the default model for this provider
+                    const defaultModel = defaultProv.models.find(m => m.default) || defaultProv.models[0];
+                    this.selectedModel = defaultModel ? defaultModel.id : '';
+                },
+
+                // Get the currently selected provider object
+                getSelectedProviderObj() {
+                    return this.configuredProviders.find(p => p.slug === this.selectedProvider) || null;
+                },
+
+                // Get display label for the current selection
+                getModelLabel() {
+                    const prov = this.getSelectedProviderObj();
+                    if (!prov) return 'Select Model';
+                    const model = prov.models.find(m => m.id === this.selectedModel);
+                    return model ? model.name : prov.name;
+                },
+
+                // Select a provider and model
+                selectModel(providerSlug, modelId) {
+                    this.selectedProvider = providerSlug;
+                    this.selectedModel = modelId;
+                    this.showModelPicker = false;
                 },
 
                 // Load marked.js for Markdown rendering with fallback
@@ -868,6 +957,8 @@
                             body: JSON.stringify({
                                 message: message,
                                 conversation_id: this.conversationId,
+                                provider: this.selectedProvider || undefined,
+                                model: this.selectedModel || undefined,
                             }),
                             signal: this.abortController.signal,
                         });
@@ -1030,6 +1121,24 @@
                             // Detect plan in streamed text — look for numbered markdown list
                             this.detectPlanInText(this.currentStreamText);
                             this.scrollToBottom();
+                            break;
+
+                        case 'tool_start_hint':
+                            // Early notification that a tool call is being generated
+                            // Show status immediately while arguments are still streaming
+                            try {
+                                const hintData = JSON.parse(data);
+                                this.isThinking = true;
+                                this.activeToolName = hintData.name;
+                                const hintMsg = this.getToolStatusMessage(hintData.name, 'running');
+                                this.statusMessage = 'Preparing: ' + hintMsg;
+                                // Save any accumulated text as a message
+                                if (this.currentStreamText) {
+                                    this.messages.push({ role: 'assistant', content: this.currentStreamText });
+                                    this.currentStreamText = '';
+                                }
+                                this.scrollToBottom();
+                            } catch (e) {}
                             break;
 
                         case 'tool_start':

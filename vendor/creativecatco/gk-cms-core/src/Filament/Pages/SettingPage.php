@@ -98,6 +98,7 @@ class SettingPage extends Page
             'image_gen_provider' => Setting::get('image_gen_provider', 'auto'),
             'google_ai_api_key' => Setting::get('google_ai_api_key', ''),
             'openai_image_api_key' => Setting::get('openai_image_api_key', ''),
+            'together_api_key' => Setting::get('together_api_key', ''),
 
             // GitHub
             'github_token' => Setting::get('github_token', ''),
@@ -477,40 +478,54 @@ class SettingPage extends Page
                                     ])->columns(2),
 
                                 Forms\Components\Section::make('Image Generation')
-                                    ->description('Configure AI image generation for creating custom visuals. This is separate from the LLM provider above. If not configured, the AI will skip image generation.')
+                                    ->description('Configure AI image generation for creating custom visuals. This is separate from the chat LLM above — the AI automatically uses the best available image provider regardless of which LLM you chat with.')
                                     ->schema([
                                         Forms\Components\Select::make('image_gen_provider')
                                             ->label('Image Generation Provider')
                                             ->options([
-                                                'auto' => 'Auto (use best available)',
-                                                'nano_banana' => 'Nano Banana (Google Gemini) — Best for illustrations & artistic styles',
-                                                'dalle' => 'OpenAI DALL-E 3 — Best for photorealistic images',
+                                                'auto' => 'Auto (smart selection based on task)',
+                                                'nano_banana' => 'Nano Banana (Google Gemini) — Illustrations & artistic styles',
+                                                'dalle' => 'OpenAI DALL-E 3 — Photorealistic images',
+                                                'together' => 'Together AI FLUX — Fast, high quality',
                                                 'none' => 'Disabled — No image generation',
                                             ])
                                             ->default('auto')
                                             ->live()
-                                            ->helperText('Choose which AI generates images. "Auto" will use whichever has a valid API key configured (prefers Nano Banana).'),
+                                            ->helperText('"Auto" intelligently picks the best provider for each image. If no API keys are configured below, a free provider (Pollinations AI) is used as fallback.'),
 
                                         Forms\Components\TextInput::make('google_ai_api_key')
-                                            ->label('Google AI API Key (for Nano Banana)')
+                                            ->label('Google AI API Key (Nano Banana)')
                                             ->password()
                                             ->revealable()
                                             ->maxLength(500)
                                             ->placeholder('AIza...')
-                                            ->helperText('Get your key at aistudio.google.com/apikey — This is the same key used if your LLM provider is Google Gemini.')
+                                            ->helperText('Free key at aistudio.google.com/apikey — Best for illustrations, icons, and artistic images. If your LLM is Google Gemini, the same key is used automatically.')
                                             ->visible(fn (Forms\Get $get) => in_array($get('image_gen_provider'), ['auto', 'nano_banana'])),
 
                                         Forms\Components\TextInput::make('openai_image_api_key')
-                                            ->label('OpenAI API Key (for DALL-E)')
+                                            ->label('OpenAI API Key (DALL-E 3)')
                                             ->password()
                                             ->revealable()
                                             ->maxLength(500)
                                             ->placeholder('sk-...')
-                                            ->helperText('Get your key at platform.openai.com/api-keys — If your LLM provider is OpenAI, the same key will be used automatically.')
+                                            ->helperText('Get your key at platform.openai.com/api-keys — Best for photorealistic images. If your LLM is OpenAI, the same key is used automatically.')
                                             ->visible(fn (Forms\Get $get) => in_array($get('image_gen_provider'), ['auto', 'dalle'])),
 
-                                        Forms\Components\Placeholder::make('image_gen_note')
-                                            ->content('Image generation is disabled. The AI assistant will not be able to create custom images for your website.')
+                                        Forms\Components\TextInput::make('together_api_key')
+                                            ->label('Together AI API Key (FLUX)')
+                                            ->password()
+                                            ->revealable()
+                                            ->maxLength(500)
+                                            ->placeholder('tok_...')
+                                            ->helperText('Free tier available at api.together.ai — Uses FLUX.1 Schnell model for fast, high-quality image generation.')
+                                            ->visible(fn (Forms\Get $get) => in_array($get('image_gen_provider'), ['auto', 'together'])),
+
+                                        Forms\Components\Placeholder::make('image_gen_fallback_note')
+                                            ->content('No image API keys configured? No problem! The AI will use a free image generation service (Pollinations AI) as a fallback. For better quality, add at least one API key above.')
+                                            ->visible(fn (Forms\Get $get) => $get('image_gen_provider') === 'auto'),
+
+                                        Forms\Components\Placeholder::make('image_gen_disabled_note')
+                                            ->content('Image generation is disabled. The AI assistant will not create custom images for your website.')
                                             ->visible(fn (Forms\Get $get) => $get('image_gen_provider') === 'none'),
                                     ])->columns(1),
 
@@ -654,6 +669,7 @@ class SettingPage extends Page
             'image_gen_provider' => 'ai',
             'google_ai_api_key' => 'ai',
             'openai_image_api_key' => 'ai',
+            'together_api_key' => 'ai',
             'github_token' => 'ai',
         ];
 

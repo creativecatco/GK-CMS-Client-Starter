@@ -34,11 +34,15 @@ class AiChatController extends Controller
         $request->validate([
             'message' => 'required|string|max:10000',
             'conversation_id' => 'nullable|integer|exists:ai_conversations,id',
+            'provider' => 'nullable|string|in:openai,anthropic,google,xai,manus',
+            'model' => 'nullable|string|max:100',
         ]);
 
         $user = Auth::user();
         $message = $request->input('message');
         $conversationId = $request->input('conversation_id');
+        $requestedProvider = $request->input('provider');
+        $requestedModel = $request->input('model');
 
         // Check if AI is configured
         if (!LlmProviderFactory::isConfigured()) {
@@ -63,7 +67,11 @@ class AiChatController extends Controller
             ]);
         }
 
-        return new StreamedResponse(function () use ($conversation, $message) {
+        return new StreamedResponse(function () use ($conversation, $message, $requestedProvider, $requestedModel) {
+            // Keep PHP running even if the browser disconnects (proxy timeout)
+            // This ensures tool calls complete even if SSE connection drops
+            ignore_user_abort(true);
+
             // Disable output buffering for real-time streaming
             if (ob_get_level()) {
                 ob_end_clean();
@@ -73,7 +81,7 @@ class AiChatController extends Controller
             set_time_limit(300);
 
             try {
-                $orchestrator = AiOrchestrator::create($conversation->user_id);
+                $orchestrator = AiOrchestrator::create($conversation->user_id, $requestedProvider, $requestedModel);
 
                 $orchestrator->handleMessage($conversation, $message, function ($type, $data) use ($conversation) {
                     $this->sendSseEvent($type, $data, $conversation);

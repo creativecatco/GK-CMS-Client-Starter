@@ -46,13 +46,49 @@ class ToolRegistry
 
     /**
      * Get all tool definitions in OpenAI function calling format.
+     *
+     * @param array $exclude Tool names to exclude
      */
-    public function getToolDefinitions(): array
+    public function getToolDefinitions(array $exclude = []): array
     {
+        $tools = $this->tools;
+        if (!empty($exclude)) {
+            $tools = array_filter($tools, fn(ToolInterface $tool) => !in_array($tool->name(), $exclude));
+        }
         return array_values(array_map(
             fn(ToolInterface $tool) => $tool->toToolDefinition(),
-            $this->tools
+            $tools
         ));
+    }
+
+    /**
+     * Get a lightweight set of tool definitions, excluding heavy/rarely-used tools.
+     * This reduces token usage significantly for rate-limited API plans.
+     *
+     * Heavy tools excluded:
+     * - scan_website (~4K tokens) - only needed for importing external sites
+     * - create_plugin (~4K tokens) - only needed for plugin development
+     * - render_page (~4K tokens) - only needed for visual inspection
+     * - run_query (~2K tokens) - debugging tool
+     * - read_file, write_file, list_files (~3K tokens) - debugging tools
+     * - run_artisan (~1K tokens) - debugging tool
+     * - read_error_log (~1K tokens) - debugging tool
+     */
+    public function getLightweightToolDefinitions(): array
+    {
+        $heavyTools = [
+            'scan_website',
+            'create_plugin',
+            'render_page',
+            'generate_image',
+            'run_query',
+            'read_file',
+            'write_file',
+            'list_files',
+            'run_artisan',
+            'read_error_log',
+        ];
+        return $this->getToolDefinitions($heavyTools);
     }
 
     /**

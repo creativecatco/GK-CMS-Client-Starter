@@ -116,6 +116,9 @@ abstract class AbstractLlmProvider implements LlmProviderInterface
      */
     protected function chatStream(string $url, array $headers, array $body, callable $onChunk): array
     {
+        // Track retry attempts internally but don't send to API
+        $retryAttempt = $body['_retry_attempt'] ?? 0;
+        unset($body['_retry_attempt']);
         $body['stream'] = true;
 
         $curlHeaders = [];
@@ -127,6 +130,7 @@ abstract class AbstractLlmProvider implements LlmProviderInterface
         $toolCalls = [];
         $state = []; // Provider-specific streaming state
         $lineBuffer = ''; // Buffer for partial lines across CURL callbacks
+        $rawResponseBody = ''; // Capture raw response for error debugging
 
         $ch = curl_init();
         curl_setopt_array($ch, [
@@ -137,8 +141,9 @@ abstract class AbstractLlmProvider implements LlmProviderInterface
             CURLOPT_RETURNTRANSFER => false,
             CURLOPT_TIMEOUT => 300,
             CURLOPT_CONNECTTIMEOUT => 30,
-            CURLOPT_WRITEFUNCTION => function ($ch, $data) use ($onChunk, &$fullContent, &$toolCalls, &$state, &$lineBuffer) {
+            CURLOPT_WRITEFUNCTION => function ($ch, $data) use ($onChunk, &$fullContent, &$toolCalls, &$state, &$lineBuffer, &$rawResponseBody) {
                 $originalLength = strlen($data);
+                $rawResponseBody .= $data;
 
                 // Prepend any leftover data from the previous callback
                 $data = $lineBuffer . $data;
@@ -196,6 +201,11 @@ abstract class AbstractLlmProvider implements LlmProviderInterface
                                 }
                             }
                             $onChunk('done', null);
+                            break;
+
+                        case 'tool_start_hint':
+                            // Forward early tool start notification to the UI
+                            $onChunk('tool_start_hint', $parsed['data']);
                             break;
 
                         case 'error':
@@ -265,8 +275,44 @@ abstract class AbstractLlmProvider implements LlmProviderInterface
         }
 
         if ($result === false || $httpCode >= 400) {
+            // Try to extract the actual error message from the response body
+            $errorDetail = '';
+            if (!empty($rawResponseBody)) {
+                $errorJson = json_decode($rawResponseBody, true);
+                if ($errorJson) {
+                    $errorDetail = $errorJson['error']['message'] ?? ($errorJson['message'] ?? '');
+                } else {
+                    $errorDetail = substr($rawResponseBody, 0, 1000);
+                }
+            }
             $error = $curlError ?: "HTTP $httpCode error";
-            Log::error('LLM streaming error', ['provider' => $this->getName(), 'error' => $error]);
+            if ($errorDetail) {
+                $error .= " — $errorDetail";
+            }
+            Log::error('LLM streaming error', [
+                'provider' => $this->getName(),
+                'http_code' => $httpCode,
+                'error' => $error,
+                'response_body_preview' => substr($rawResponseBody, 0, 2000),
+                'request_message_count' => count($body['messages'] ?? []),
+                'request_body_size' => strlen(json_encode($body)),
+            ]);
+
+            // Auto-retry on rate limit (429) with exponential backoff
+            if ($httpCode === 429 && $retryAttempt < 3) {
+                $waitSeconds = pow(2, $retryAttempt) * 15; // 15s, 30s, 60s
+                Log::info('Rate limited, retrying', [
+                    'attempt' => $retryAttempt + 1,
+                    'wait_seconds' => $waitSeconds,
+                ]);
+                $onChunk('text', "\n\n*Rate limited by AI provider. Retrying in {$waitSeconds} seconds...*\n\n");
+                sleep($waitSeconds);
+                // Pass retry count via the body but it will be stripped at the top of chatStream
+                $body['_retry_attempt'] = $retryAttempt + 1;
+                unset($body['stream']); // chatStream will re-add this
+                return $this->chatStream($url, $headers, $body, $onChunk);
+            }
+
             $onChunk('error', $error);
         }
 

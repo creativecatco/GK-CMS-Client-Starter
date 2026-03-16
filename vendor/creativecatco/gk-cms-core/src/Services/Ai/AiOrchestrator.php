@@ -34,10 +34,14 @@ class AiOrchestrator
 
     /**
      * Create an orchestrator from the current CMS settings.
+     *
+     * @param int|null $userId User ID for preference loading
+     * @param string|null $providerSlug Override the default LLM provider (e.g. 'openai', 'anthropic')
+     * @param string|null $modelId Override the default model for the provider
      */
-    public static function create(?int $userId = null): self
+    public static function create(?int $userId = null, ?string $providerSlug = null, ?string $modelId = null): self
     {
-        $provider = LlmProviderFactory::create();
+        $provider = LlmProviderFactory::create($providerSlug, null, $modelId);
         $registry = ToolRegistry::createDefault();
         $executor = new ToolExecutor($registry);
         $promptLoader = new SystemPromptLoader();
@@ -82,8 +86,10 @@ class AiOrchestrator
             $systemPrompt = $this->promptLoader->load();
             $messages = $this->buildMessages($systemPrompt, $conversation);
 
-            // 3. Get tool definitions
-            $tools = $this->toolRegistry->getToolDefinitions();
+            // 3. Get tool definitions (use lightweight set to reduce token usage)
+            // Heavy/rarely-used tools are excluded but still available for execution
+            // if the AI somehow references them from conversation context
+            $tools = $this->toolRegistry->getLightweightToolDefinitions();
 
             // 4. Run the agentic loop
             $this->agentLoop($conversation, $messages, $tools, $onEvent);
@@ -128,6 +134,11 @@ class AiOrchestrator
                     $toolCallsReceived[] = $data;
                     break;
 
+                case 'tool_start_hint':
+                    // Early notification that a tool call is being generated
+                    $onEvent('tool_start_hint', $data);
+                    break;
+
                 case 'done':
                     // Don't emit done yet — we may need to process tool calls
                     break;
@@ -140,6 +151,10 @@ class AiOrchestrator
 
         // If there was an error in the response
         if (!empty($response['error'])) {
+            // Save any partial content that was streamed before the error
+            if (!empty($fullContent)) {
+                $conversation->addMessage('assistant', $fullContent);
+            }
             $onEvent('error', $response['error']);
             return;
         }
@@ -160,11 +175,24 @@ class AiOrchestrator
             // Save the assistant message with tool calls
             $conversation->addMessage('assistant', $fullContent, $toolCallsReceived);
 
+            // Truncate large tool call arguments to reduce token usage in subsequent calls
+            // The full arguments are saved to the conversation DB, but the LLM doesn't need them again
+            $truncatedToolCalls = array_map(function ($tc) {
+                $args = $tc['function']['arguments'] ?? '';
+                if (is_string($args) && strlen($args) > 2000) {
+                    $tc['function']['arguments'] = json_encode([
+                        '_truncated' => true,
+                        '_summary' => 'Arguments were ' . strlen($args) . ' chars. Tool was executed with full arguments.',
+                    ]);
+                }
+                return $tc;
+            }, $toolCallsReceived);
+
             // Add the assistant message to the messages array for the next call
             $assistantMessage = [
                 'role' => 'assistant',
                 'content' => $fullContent ?: null,
-                'tool_calls' => $toolCallsReceived,
+                'tool_calls' => $truncatedToolCalls,
             ];
             $messages[] = $assistantMessage;
 
@@ -232,11 +260,21 @@ class AiOrchestrator
                 ]);
 
                 // Add tool result to messages for the next LLM call
+                // Truncate large results to reduce token usage
+                $llmResultContent = $toolResultContent;
+                if (strlen($llmResultContent) > 3000) {
+                    $llmResultContent = json_encode([
+                        '_truncated' => true,
+                        'success' => $result['success'] ?? true,
+                        '_summary' => 'Result was ' . strlen($toolResultContent) . ' chars. Key: ' . implode(', ', array_keys($result)),
+                        'message' => $result['message'] ?? ($result['success'] ? 'Tool executed successfully.' : 'Tool failed.'),
+                    ]);
+                }
                 $messages[] = [
                     'role' => 'tool',
                     'tool_call_id' => $toolCallId,
                     'name' => $toolName,
-                    'content' => $toolResultContent,
+                    'content' => $llmResultContent,
                 ];
             }
 

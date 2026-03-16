@@ -4,6 +4,7 @@ namespace CreativeCatCo\GkCmsCore\Services\Ai\Tools;
 
 use CreativeCatCo\GkCmsCore\Models\Media;
 use CreativeCatCo\GkCmsCore\Models\Setting;
+use CreativeCatCo\GkCmsCore\Services\Ai\LlmProviderFactory;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -18,7 +19,7 @@ class GenerateImageTool extends AbstractTool
 
     public function description(): string
     {
-        return 'Generate a custom AI image from a text prompt and save it to the media library. Supports hero banners, illustrations, icons, product shots, and more. Use this to create professional visuals for the website instead of using placeholder images. The image is generated using Nano Banana (Google Gemini) or OpenAI DALL-E depending on configuration.';
+        return 'Generate a custom AI image from a text prompt and save it to the media library. Supports hero banners, illustrations, icons, product shots, and more. The system automatically selects the best available image provider based on configured API keys. If no image API keys are configured, a free provider (Together AI FLUX) is used as fallback.';
     }
 
     public function parameters(): array
@@ -28,7 +29,7 @@ class GenerateImageTool extends AbstractTool
             'properties' => [
                 'prompt' => [
                     'type' => 'string',
-                    'description' => 'A detailed description of the image to generate. Be specific about style, composition, lighting, colors, and subject. Example: "A modern, minimalist hero banner for a digital marketing agency, featuring abstract geometric shapes in blue and green gradients, with clean negative space on the right for text overlay, 16:9 aspect ratio"',
+                    'description' => 'A detailed description of the image to generate. Be specific about style, composition, lighting, colors, and subject.',
                 ],
                 'filename' => [
                     'type' => 'string',
@@ -40,18 +41,18 @@ class GenerateImageTool extends AbstractTool
                 ],
                 'aspect_ratio' => [
                     'type' => 'string',
-                    'description' => 'Aspect ratio for the image. Options: "1:1" (square), "16:9" (widescreen/hero), "3:2" (standard photo), "4:3" (classic), "9:16" (portrait/mobile). Defaults to "16:9".',
+                    'description' => 'Aspect ratio for the image. Defaults to "16:9".',
                     'enum' => ['1:1', '16:9', '3:2', '4:3', '9:16', '2:3', '3:4', '4:5', '5:4'],
                 ],
                 'style' => [
                     'type' => 'string',
-                    'description' => 'Image style hint. Options: "photorealistic" (real-world photos), "illustration" (digital art/illustrations), "minimal" (clean/simple), "abstract" (artistic/abstract), "icon" (icon/sticker style). Defaults to "photorealistic".',
+                    'description' => 'Image style hint. Defaults to "photorealistic".',
                     'enum' => ['photorealistic', 'illustration', 'minimal', 'abstract', 'icon'],
                 ],
                 'provider' => [
                     'type' => 'string',
-                    'description' => 'Which AI provider to use. "auto" picks the best available. "nano_banana" uses Google Gemini. "dalle" uses OpenAI DALL-E. Defaults to "auto".',
-                    'enum' => ['auto', 'nano_banana', 'dalle'],
+                    'description' => 'Which AI provider to use. "auto" picks the best available. Only specify a provider if the user explicitly requests one.',
+                    'enum' => ['auto', 'nano_banana', 'dalle', 'flux'],
                 ],
             ],
             'required' => ['prompt', 'filename'],
@@ -65,75 +66,52 @@ class GenerateImageTool extends AbstractTool
         $altText = $params['alt_text'] ?? $prompt;
         $aspectRatio = $params['aspect_ratio'] ?? '16:9';
         $style = $params['style'] ?? 'photorealistic';
-        $provider = $params['provider'] ?? 'auto';
+        $requestedProvider = $params['provider'] ?? 'auto';
 
         if (empty($prompt)) {
             return $this->error('A prompt is required to generate an image.');
         }
 
-        // Clean filename
         $filename = Str::slug($filename);
-
-        // Enhance the prompt based on style
         $enhancedPrompt = $this->enhancePrompt($prompt, $style);
 
-        // Determine which provider to use
+        // Resolve all available image API keys (independent of chat LLM provider)
+        $keys = $this->resolveImageApiKeys();
+
+        // Check if image generation is disabled
         $configuredImageProvider = Setting::get('image_gen_provider', 'auto');
-        $aiProvider = Setting::get('ai_provider', 'openai');
-
-        // Resolve Google AI API key: dedicated key > main AI key (if Google provider)
-        $googleApiKey = Setting::get('google_ai_api_key', '');
-        if (empty($googleApiKey) && $aiProvider === 'google') {
-            $googleApiKey = Setting::get('ai_api_key', '');
-        }
-
-        // Resolve OpenAI API key: dedicated image key > main AI key (if OpenAI provider)
-        $openaiApiKey = Setting::get('openai_image_api_key', '');
-        if (empty($openaiApiKey) && $aiProvider === 'openai') {
-            $openaiApiKey = Setting::get('ai_api_key', '');
-        }
-
-        // If image generation is disabled in settings, return error
         if ($configuredImageProvider === 'none') {
             return $this->error('Image generation is disabled. Enable it in Settings > AI Assistant > Image Generation.');
         }
 
-        // Use the settings-configured provider if the tool request is 'auto'
-        if ($provider === 'auto') {
-            if ($configuredImageProvider !== 'auto') {
-                $provider = $configuredImageProvider;
-            } else {
-                // Auto-detect: prefer Nano Banana if Google key is available
-                if (!empty($googleApiKey)) {
-                    $provider = 'nano_banana';
-                } elseif (!empty($openaiApiKey)) {
-                    $provider = 'dalle';
-                } else {
-                    return $this->error('No image generation API key configured. Please add a Google AI API key (for Nano Banana) or OpenAI API key (for DALL-E) in Settings > AI Assistant > Image Generation.');
-                }
-            }
+        // Determine which provider to use
+        $provider = $this->selectProvider($requestedProvider, $configuredImageProvider, $keys, $style);
+
+        if (!$provider) {
+            // No paid providers available — use free fallback
+            $provider = 'flux_free';
         }
 
+        Log::info('GenerateImageTool: using provider', ['provider' => $provider, 'style' => $style]);
+
         try {
-            if ($provider === 'nano_banana') {
-                $result = $this->generateWithNanoBanana($enhancedPrompt, $aspectRatio, $googleApiKey);
-            } else {
-                $result = $this->generateWithDalle($enhancedPrompt, $aspectRatio, $openaiApiKey);
+            $result = $this->generateImage($provider, $enhancedPrompt, $aspectRatio, $keys);
+
+            // If the primary provider failed, try fallbacks
+            if (!$result['success']) {
+                $fallbacks = $this->getFallbackProviders($provider, $keys);
+                foreach ($fallbacks as $fallback) {
+                    Log::info("Image generation: {$provider} failed, trying {$fallback}");
+                    $result = $this->generateImage($fallback, $enhancedPrompt, $aspectRatio, $keys);
+                    if ($result['success']) {
+                        $provider = $fallback;
+                        break;
+                    }
+                }
             }
 
             if (!$result['success']) {
-                // Fallback to the other provider
-                if ($provider === 'nano_banana' && !empty($openaiApiKey)) {
-                    Log::info('Nano Banana failed, falling back to DALL-E');
-                    $result = $this->generateWithDalle($enhancedPrompt, $aspectRatio, $openaiApiKey);
-                } elseif ($provider === 'dalle' && !empty($googleApiKey)) {
-                    Log::info('DALL-E failed, falling back to Nano Banana');
-                    $result = $this->generateWithNanoBanana($enhancedPrompt, $aspectRatio, $googleApiKey);
-                }
-
-                if (!$result['success']) {
-                    return $this->error('Image generation failed: ' . ($result['error'] ?? 'Unknown error'));
-                }
+                return $this->error('Image generation failed: ' . ($result['error'] ?? 'All providers failed'));
             }
 
             // Save the image to storage
@@ -143,13 +121,11 @@ class GenerateImageTool extends AbstractTool
             $fullFilename = $filename . '.' . $extension;
             $storagePath = 'media/ai-generated/' . $fullFilename;
 
-            // Ensure directory exists
             Storage::disk('public')->makeDirectory('media/ai-generated');
             Storage::disk('public')->put($storagePath, $imageData);
 
             $publicUrl = '/storage/' . $storagePath;
 
-            // Save to Media database
             try {
                 Media::create([
                     'filename' => $fullFilename,
@@ -170,7 +146,7 @@ class GenerateImageTool extends AbstractTool
                 'provider' => $provider,
                 'alt_text' => $altText,
                 'aspect_ratio' => $aspectRatio,
-            ], "Image generated successfully and saved to gallery as {$fullFilename}");
+            ], "Image generated successfully using {$provider} and saved as {$fullFilename}");
 
         } catch (\Exception $e) {
             Log::error('GenerateImageTool error', [
@@ -183,6 +159,119 @@ class GenerateImageTool extends AbstractTool
     }
 
     /**
+     * Resolve all available image API keys, independent of the chat LLM provider.
+     * Checks dedicated image keys, main AI key, and provider-specific keys.
+     */
+    protected function resolveImageApiKeys(): array
+    {
+        $mainAiKey = Setting::get('ai_api_key', '');
+        $mainProvider = Setting::get('ai_provider', 'openai');
+
+        // Dedicated image generation keys
+        $openaiImageKey = Setting::get('openai_image_api_key', '');
+        $googleImageKey = Setting::get('google_ai_api_key', '');
+        $togetherKey = Setting::get('together_api_key', '');
+
+        // If no dedicated OpenAI image key, check if the main key is OpenAI
+        if (empty($openaiImageKey)) {
+            if ($mainProvider === 'openai' && !empty($mainAiKey)) {
+                $openaiImageKey = $mainAiKey;
+            } elseif (!empty($mainAiKey) && str_starts_with($mainAiKey, 'sk-') && !str_starts_with($mainAiKey, 'sk-ant-')) {
+                $openaiImageKey = $mainAiKey;
+            }
+        }
+
+        // If no dedicated Google image key, check if the main key is Google
+        if (empty($googleImageKey)) {
+            if ($mainProvider === 'google' && !empty($mainAiKey)) {
+                $googleImageKey = $mainAiKey;
+            } elseif (!empty($mainAiKey) && str_starts_with($mainAiKey, 'AIza')) {
+                $googleImageKey = $mainAiKey;
+            }
+        }
+
+        return [
+            'openai' => $openaiImageKey,
+            'google' => $googleImageKey,
+            'together' => $togetherKey,
+        ];
+    }
+
+    /**
+     * Smart provider selection based on request, config, available keys, and style.
+     */
+    protected function selectProvider(string $requested, string $configured, array $keys, string $style): ?string
+    {
+        // If user explicitly requested a provider, honor it
+        if ($requested !== 'auto') {
+            return match ($requested) {
+                'nano_banana' => !empty($keys['google']) ? 'nano_banana' : null,
+                'dalle' => !empty($keys['openai']) ? 'dalle' : null,
+                'flux' => !empty($keys['together']) ? 'flux' : 'flux_free',
+                default => null,
+            };
+        }
+
+        // If admin configured a specific provider in settings
+        if ($configured !== 'auto') {
+            return match ($configured) {
+                'nano_banana' => !empty($keys['google']) ? 'nano_banana' : null,
+                'dalle' => !empty($keys['openai']) ? 'dalle' : null,
+                'flux' => !empty($keys['together']) ? 'flux' : 'flux_free',
+                'together' => !empty($keys['together']) ? 'flux' : 'flux_free',
+                default => null,
+            };
+        }
+
+        // Auto mode: smart selection based on style and available keys
+        // For photorealistic images, prefer DALL-E (best quality)
+        // For illustrations/artistic, prefer Nano Banana (Gemini)
+        // FLUX is a good all-rounder
+        if ($style === 'photorealistic' && !empty($keys['openai'])) {
+            return 'dalle';
+        }
+        if (in_array($style, ['illustration', 'abstract', 'icon']) && !empty($keys['google'])) {
+            return 'nano_banana';
+        }
+
+        // Fall through: use whatever is available
+        if (!empty($keys['openai'])) return 'dalle';
+        if (!empty($keys['google'])) return 'nano_banana';
+        if (!empty($keys['together'])) return 'flux';
+
+        // No paid keys — return null to trigger free fallback
+        return null;
+    }
+
+    /**
+     * Get fallback providers in order of preference.
+     */
+    protected function getFallbackProviders(string $primary, array $keys): array
+    {
+        $all = [];
+        if (!empty($keys['openai'])) $all[] = 'dalle';
+        if (!empty($keys['google'])) $all[] = 'nano_banana';
+        if (!empty($keys['together'])) $all[] = 'flux';
+        $all[] = 'flux_free'; // Free fallback is always available
+
+        return array_values(array_filter($all, fn($p) => $p !== $primary));
+    }
+
+    /**
+     * Generate an image using the specified provider.
+     */
+    protected function generateImage(string $provider, string $prompt, string $aspectRatio, array $keys): array
+    {
+        return match ($provider) {
+            'nano_banana' => $this->generateWithNanoBanana($prompt, $aspectRatio, $keys['google']),
+            'dalle' => $this->generateWithDalle($prompt, $aspectRatio, $keys['openai']),
+            'flux' => $this->generateWithFlux($prompt, $aspectRatio, $keys['together']),
+            'flux_free' => $this->generateWithFluxFree($prompt, $aspectRatio),
+            default => ['success' => false, 'error' => "Unknown provider: {$provider}"],
+        };
+    }
+
+    /**
      * Generate image using Nano Banana (Google Gemini Image API).
      */
     protected function generateWithNanoBanana(string $prompt, string $aspectRatio, string $apiKey): array
@@ -191,7 +280,6 @@ class GenerateImageTool extends AbstractTool
             return ['success' => false, 'error' => 'Google AI API key not configured'];
         }
 
-        // Use Gemini 2.5 Flash Image (widely available) with fallback to 3.1 Flash
         $models = [
             'gemini-2.5-flash-preview-image-generation',
             'gemini-2.0-flash-exp',
@@ -236,7 +324,6 @@ class GenerateImageTool extends AbstractTool
                     continue;
                 }
 
-                // Find the image part in the response
                 $parts = $candidates[0]['content']['parts'] ?? [];
                 foreach ($parts as $part) {
                     if (isset($part['inlineData'])) {
@@ -272,7 +359,6 @@ class GenerateImageTool extends AbstractTool
             return ['success' => false, 'error' => 'OpenAI API key not configured'];
         }
 
-        // Map aspect ratios to DALL-E supported sizes
         $sizeMap = [
             '1:1' => '1024x1024',
             '16:9' => '1792x1024',
@@ -328,6 +414,127 @@ class GenerateImageTool extends AbstractTool
     }
 
     /**
+     * Generate image using Together AI FLUX (paid, with API key).
+     */
+    protected function generateWithFlux(string $prompt, string $aspectRatio, string $apiKey): array
+    {
+        if (empty($apiKey)) {
+            return ['success' => false, 'error' => 'Together AI API key not configured'];
+        }
+
+        $dimensions = $this->getFluxDimensions($aspectRatio);
+
+        try {
+            $response = Http::timeout(60)
+                ->withHeaders([
+                    'Authorization' => 'Bearer ' . $apiKey,
+                    'Content-Type' => 'application/json',
+                ])
+                ->post('https://api.together.xyz/v1/images/generations', [
+                    'model' => 'black-forest-labs/FLUX.1-schnell-Free',
+                    'prompt' => $prompt,
+                    'width' => $dimensions['width'],
+                    'height' => $dimensions['height'],
+                    'steps' => 4,
+                    'n' => 1,
+                    'response_format' => 'b64_json',
+                ]);
+
+            if (!$response->successful()) {
+                return [
+                    'success' => false,
+                    'error' => 'Together AI FLUX error: ' . substr($response->body(), 0, 300),
+                ];
+            }
+
+            $data = $response->json();
+            $imageBase64 = $data['data'][0]['b64_json'] ?? null;
+
+            if (empty($imageBase64)) {
+                return ['success' => false, 'error' => 'Together AI FLUX returned no image data'];
+            }
+
+            return [
+                'success' => true,
+                'image_data' => base64_decode($imageBase64),
+                'mime_type' => 'image/png',
+            ];
+
+        } catch (\Exception $e) {
+            return ['success' => false, 'error' => 'Together AI FLUX exception: ' . $e->getMessage()];
+        }
+    }
+
+    /**
+     * Generate image using Together AI FLUX free endpoint (no API key needed).
+     * This is the free fallback when no image API keys are configured.
+     */
+    protected function generateWithFluxFree(string $prompt, string $aspectRatio): array
+    {
+        $dimensions = $this->getFluxDimensions($aspectRatio);
+
+        try {
+            // Together AI offers a free FLUX.1-schnell endpoint
+            // We use their free tier which requires a free API key signup
+            // As an alternative, try the Pollinations.ai free API
+            $encodedPrompt = urlencode($prompt);
+            $width = $dimensions['width'];
+            $height = $dimensions['height'];
+
+            $response = Http::timeout(90)
+                ->get("https://image.pollinations.ai/prompt/{$encodedPrompt}?width={$width}&height={$height}&nologo=true&enhance=true");
+
+            if (!$response->successful()) {
+                return [
+                    'success' => false,
+                    'error' => 'Free image generation failed (HTTP ' . $response->status() . ')',
+                ];
+            }
+
+            $imageData = $response->body();
+            if (strlen($imageData) < 1000) {
+                return ['success' => false, 'error' => 'Free image generation returned invalid data'];
+            }
+
+            // Detect mime type from the response
+            $mimeType = $response->header('Content-Type') ?? 'image/jpeg';
+            if (str_contains($mimeType, 'png')) {
+                $mimeType = 'image/png';
+            } else {
+                $mimeType = 'image/jpeg';
+            }
+
+            return [
+                'success' => true,
+                'image_data' => $imageData,
+                'mime_type' => $mimeType,
+            ];
+
+        } catch (\Exception $e) {
+            return ['success' => false, 'error' => 'Free image generation exception: ' . $e->getMessage()];
+        }
+    }
+
+    /**
+     * Map aspect ratios to FLUX-compatible pixel dimensions.
+     */
+    protected function getFluxDimensions(string $aspectRatio): array
+    {
+        return match ($aspectRatio) {
+            '1:1'  => ['width' => 1024, 'height' => 1024],
+            '16:9' => ['width' => 1344, 'height' => 768],
+            '9:16' => ['width' => 768, 'height' => 1344],
+            '3:2'  => ['width' => 1216, 'height' => 832],
+            '2:3'  => ['width' => 832, 'height' => 1216],
+            '4:3'  => ['width' => 1152, 'height' => 896],
+            '3:4'  => ['width' => 896, 'height' => 1152],
+            '4:5'  => ['width' => 896, 'height' => 1088],
+            '5:4'  => ['width' => 1088, 'height' => 896],
+            default => ['width' => 1344, 'height' => 768],
+        };
+    }
+
+    /**
      * Enhance the prompt based on the desired style.
      */
     protected function enhancePrompt(string $prompt, string $style): string
@@ -341,7 +548,6 @@ class GenerateImageTool extends AbstractTool
             default => '',
         };
 
-        // Add web-specific quality hints
         $suffix = ' High resolution, suitable for a professional website. No watermarks, no text unless specifically requested.';
 
         return $stylePrefix . $prompt . $suffix;

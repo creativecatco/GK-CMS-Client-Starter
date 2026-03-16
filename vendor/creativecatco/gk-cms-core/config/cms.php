@@ -127,7 +127,7 @@ return [
     | The current version of GKeys CMS core package.
     |
     */
-    'version' => '0.3.0',
+    'version' => '0.7.2',
 
     /*
     |--------------------------------------------------------------------------

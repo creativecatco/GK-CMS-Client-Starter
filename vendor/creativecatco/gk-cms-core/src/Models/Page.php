@@ -29,6 +29,7 @@ class Page extends Model
         'seo_title',
         'seo_description',
         'og_image',
+        'show_in_nav',
     ];
 
     protected $casts = [
@@ -36,6 +37,7 @@ class Page extends Model
         'blocks' => 'array',
         'fields' => 'array',
         'field_definitions' => 'array',
+        'show_in_nav' => 'boolean',
     ];
 
     /*
@@ -112,6 +114,35 @@ class Page extends Model
             'style' => 'primary',
             'visible' => true,
         ], $defaults);
+    }
+
+    /**
+     * Render a button as HTML. Safe to use with {!! !!} in Blade templates.
+     * Uses the theme's primary/secondary colors for styling.
+     */
+    public function renderButton(string $key, array $defaults = []): string
+    {
+        $btn = $this->button($key, $defaults);
+        if (!($btn['visible'] ?? true)) {
+            return '';
+        }
+
+        $text = e($btn['text'] ?? 'Click Here');
+        $link = e($btn['link'] ?? '#');
+        $style = $btn['style'] ?? 'primary';
+
+        if ($style === 'primary') {
+            $classes = 'inline-block px-8 py-3 rounded-lg font-semibold text-lg transition-all duration-300 hover:opacity-90 hover:shadow-lg';
+            $inlineStyle = 'background-color: var(--color-primary); color: var(--color-secondary);';
+        } elseif ($style === 'secondary') {
+            $classes = 'inline-block px-8 py-3 rounded-lg font-semibold text-lg transition-all duration-300 hover:opacity-90 border-2';
+            $inlineStyle = 'border-color: var(--color-primary); color: var(--color-primary);';
+        } else {
+            $classes = 'inline-block px-8 py-3 rounded-lg font-semibold text-lg transition-all duration-300 hover:opacity-90';
+            $inlineStyle = '';
+        }
+
+        return '<a href="' . $link . '" class="' . $classes . '" style="' . $inlineStyle . '" data-field="' . e($key) . '" data-field-type="button">' . $text . '</a>';
     }
 
     /**

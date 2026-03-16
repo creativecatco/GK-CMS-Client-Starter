@@ -75,11 +75,18 @@ class AnthropicProvider extends AbstractLlmProvider
                     $content[] = ['type' => 'text', 'text' => $msg['content']];
                 }
                 foreach ($msg['tool_calls'] as $tc) {
+                    $argsStr = $tc['function']['arguments'] ?? '';
+                    $decoded = is_string($argsStr) ? json_decode($argsStr, true) : $argsStr;
+                    // Anthropic requires 'input' to be a JSON object (dictionary), never an array.
+                    // Empty or invalid args must become {} not []
+                    if (!is_array($decoded) || empty($decoded) || array_is_list($decoded)) {
+                        $decoded = (object)($decoded ?: []);
+                    }
                     $content[] = [
                         'type' => 'tool_use',
                         'id' => $tc['id'],
                         'name' => $tc['function']['name'],
-                        'input' => json_decode($tc['function']['arguments'], true) ?? [],
+                        'input' => $decoded,
                     ];
                 }
                 $anthropicMessages[] = [
@@ -157,6 +164,8 @@ class AnthropicProvider extends AbstractLlmProvider
                             'arguments' => '',
                         ],
                     ];
+                    // Emit early hint so the UI can show status immediately
+                    return ['type' => 'tool_start_hint', 'data' => ['name' => $block['name']]];
                 }
                 return null;
 
