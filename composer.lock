@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "f7f5e0cfaf7f41bbcd1478384cbbcdbe",
+    "content-hash": "7a4bd713675159043cc1826523e83935",
     "packages": [
         {
             "name": "anourvalar/eloquent-serialize",
@@ -353,16 +353,16 @@
         },
         {
             "name": "creativecatco/gk-cms-core",
-            "version": "0.3.9",
+            "version": "0.6.0",
             "source": {
                 "type": "git",
                 "url": "git@github.com:creativecatco/gk-cms-core.git",
-                "reference": "43ee0569f8b531742578af06a092917c18b8d242"
+                "reference": "83806d505671ff1d8f5d691ae83abb64034d32ff"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/creativecatco/gk-cms-core/zipball/43ee0569f8b531742578af06a092917c18b8d242",
-                "reference": "43ee0569f8b531742578af06a092917c18b8d242",
+                "url": "https://api.github.com/repos/creativecatco/gk-cms-core/zipball/83806d505671ff1d8f5d691ae83abb64034d32ff",
+                "reference": "83806d505671ff1d8f5d691ae83abb64034d32ff",
                 "shasum": ""
             },
             "require": {
@@ -425,10 +425,10 @@
                 "laravel"
             ],
             "support": {
-                "source": "https://github.com/creativecatco/gk-cms-core/tree/v0.3.9",
+                "source": "https://github.com/creativecatco/gk-cms-core/tree/v0.6.0",
                 "issues": "https://github.com/creativecatco/gk-cms-core/issues"
             },
-            "time": "2026-03-15T10:14:40+00:00"
+            "time": "2026-03-16T02:15:37+00:00"
         },
         {
             "name": "danharrin/date-format-converter",
@@ -10308,5 +10308,5 @@
         "php": "^8.2"
     },
     "platform-dev": {},
-    "plugin-api-version": "2.6.0"
+    "plugin-api-version": "2.9.0"
 }
