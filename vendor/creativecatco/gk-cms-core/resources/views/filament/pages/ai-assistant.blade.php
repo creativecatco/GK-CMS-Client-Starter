@@ -340,17 +340,17 @@
                                             {{-- Tool status bar --}}
                                             <div class="flex items-center gap-2 px-3 py-2 rounded-lg text-xs border transition-all duration-300"
                                                  :class="{
-                                                     'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800 ai-tool-running': msg.status === 'running',
-                                                     'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800': msg.status === 'done',
-                                                     'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800': msg.status === 'error',
+                                                     'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 ai-tool-running': msg.status === 'running',
+                                                     'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800 text-green-700 dark:text-green-300': msg.status === 'done',
+                                                     'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-700 dark:text-red-300': msg.status === 'error',
                                                  }">
-                                                <svg class="w-3 h-3 text-blue-500 animate-spin" x-show="msg.status === 'running'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                <svg class="w-3 h-3 text-blue-500 dark:text-blue-400 animate-spin" x-show="msg.status === 'running'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                                 </svg>
-                                                <x-heroicon-o-check-circle x-show="msg.status === 'done'" class="w-3 h-3 text-green-500" />
-                                                <x-heroicon-o-x-circle x-show="msg.status === 'error'" class="w-3 h-3 text-red-500" />
-                                                <span class="font-mono" x-text="formatToolName(msg.tool_name)"></span>
+                                                <x-heroicon-o-check-circle x-show="msg.status === 'done'" class="w-3 h-3 text-green-600 dark:text-green-400" />
+                                                <x-heroicon-o-x-circle x-show="msg.status === 'error'" class="w-3 h-3 text-red-600 dark:text-red-400" />
+                                                <span class="font-mono font-medium" x-text="formatToolName(msg.tool_name)"></span>
                                                 <button @click="msg.expanded = !msg.expanded" class="text-blue-500 hover:text-blue-700 ml-auto">
                                                     <span x-text="msg.expanded ? 'Hide' : 'Details'"></span>
                                                 </button>
@@ -1223,6 +1223,22 @@
                         let toolsUsed = false;
                         let receivedDone = false;
 
+                        // SSE parser: handles multi-line data fields per SSE spec.
+                        // Multiple "data:" lines between events are joined with newlines.
+                        let eventType = '';
+                        let dataLines = [];
+
+                        const dispatchEvent = () => {
+                            if (eventType && dataLines.length > 0) {
+                                const data = dataLines.join('\n');
+                                this.handleSseEvent(eventType, data);
+                                if (eventType === 'tool_start' || eventType === 'tool_result') toolsUsed = true;
+                                if (eventType === 'done') receivedDone = true;
+                            }
+                            eventType = '';
+                            dataLines = [];
+                        };
+
                         while (true) {
                             const { done, value } = await reader.read();
                             if (done) break;
@@ -1231,21 +1247,17 @@
                             const lines = buffer.split('\n');
                             buffer = lines.pop(); // Keep incomplete line in buffer
 
-                            let eventType = '';
                             for (const line of lines) {
-                                if (line.startsWith('event: ')) {
+                                if (line === '') {
+                                    // Empty line = end of event
+                                    dispatchEvent();
+                                } else if (line.startsWith('event: ')) {
                                     eventType = line.substring(7).trim();
-                                } else if (line.startsWith('data: ') && eventType) {
-                                    const data = line.substring(6);
-                                    this.handleSseEvent(eventType, data);
-
-                                    if (eventType === 'tool_start' || eventType === 'tool_result') {
-                                        toolsUsed = true;
-                                    }
-                                    if (eventType === 'done') {
-                                        receivedDone = true;
-                                    }
-                                    eventType = '';
+                                } else if (line.startsWith('data: ')) {
+                                    dataLines.push(line.substring(6));
+                                } else if (line === 'data:') {
+                                    // Empty data line = blank line in content
+                                    dataLines.push('');
                                 }
                             }
                         }
@@ -1253,17 +1265,18 @@
                         // Process any remaining buffer after stream ends
                         if (buffer.trim()) {
                             const remainingLines = buffer.split('\n');
-                            let eventType = '';
                             for (const line of remainingLines) {
-                                if (line.startsWith('event: ')) {
+                                if (line === '') {
+                                    dispatchEvent();
+                                } else if (line.startsWith('event: ')) {
                                     eventType = line.substring(7).trim();
-                                } else if (line.startsWith('data: ') && eventType) {
-                                    const data = line.substring(6);
-                                    this.handleSseEvent(eventType, data);
-                                    if (eventType === 'done') receivedDone = true;
-                                    eventType = '';
+                                } else if (line.startsWith('data: ')) {
+                                    dataLines.push(line.substring(6));
+                                } else if (line === 'data:') {
+                                    dataLines.push('');
                                 }
                             }
+                            dispatchEvent(); // Flush any remaining event
                         }
 
                         // Finalize streaming text as a message

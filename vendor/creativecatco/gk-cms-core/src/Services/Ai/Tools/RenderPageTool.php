@@ -335,6 +335,30 @@ class RenderPageTool extends AbstractTool
             }
         }
 
+        // Check for hardcoded background-image URLs in templates that should use field values
+        // This is a common mistake — the template has an inline style with a URL instead of reading from the field
+        if (preg_match_all('/style=["\'][^"\']*(background-image:\s*url\(["\']?([^"\')]+)["\']?\))/i', $template, $bgMatches, PREG_SET_ORDER)) {
+            foreach ($bgMatches as $bgMatch) {
+                $url = $bgMatch[2] ?? '';
+                // Check if this is inside an element that also has a data-field-type="section_bg"
+                // or if there's a section_bg field that should be controlling this
+                $hasSectionBgField = false;
+                foreach ($fields as $fKey => $fVal) {
+                    if (is_array($fVal) && isset($fVal['image'])) {
+                        $hasSectionBgField = true;
+                        break;
+                    }
+                    if (str_contains($fKey, '_bg')) {
+                        $hasSectionBgField = true;
+                        break;
+                    }
+                }
+                if ($hasSectionBgField) {
+                    $issues[] = "CRITICAL: Template has a HARDCODED background-image URL ('{$url}') in an inline style attribute. This overrides the section_bg field value. The template should NOT have a hardcoded style=\"background-image:...\" — instead, it should read the image from the field data. Fix: remove the hardcoded style attribute and ensure the template uses the section_bg field's image value.";
+                }
+            }
+        }
+
         // Check for Blade syntax errors (basic)
         $openIf = preg_match_all('/@if\b/', $template);
         $closeIf = preg_match_all('/@endif\b/', $template);

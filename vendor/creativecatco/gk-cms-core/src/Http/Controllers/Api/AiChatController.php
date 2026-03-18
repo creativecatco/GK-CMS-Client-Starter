@@ -398,8 +398,15 @@ class AiChatController extends Controller
             default => json_encode($data),
         };
 
+        // SSE spec: newlines in data must be sent as separate "data:" lines.
+        // A blank line (\n\n) signals end-of-event, so raw newlines in text
+        // would prematurely terminate the event and lose content.
         echo "event: {$type}\n";
-        echo "data: {$payload}\n\n";
+        $lines = explode("\n", $payload);
+        foreach ($lines as $line) {
+            echo "data: {$line}\n";
+        }
+        echo "\n"; // End of event
 
         if (ob_get_level()) {
             ob_flush();

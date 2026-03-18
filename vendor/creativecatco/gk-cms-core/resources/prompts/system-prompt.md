@@ -45,7 +45,19 @@ Before ANY change: **understand request → gather context → analyze → plan 
 | Recreate a website | `scan_website` → `get_site_overview` → plan |
 | Change an image | `get_page_info` (find the field key) → `update_page_fields` |
 
-### 2.4 When Something Goes Wrong
+### 2.4 Verification (CRITICAL)
+
+After ANY change to a page, you MUST verify it actually worked:
+
+1. **After `update_page_fields`:** Call `render_page` and check the `issues` array. If there are CRITICAL issues (e.g., hardcoded values overriding your field update), the change did NOT take effect.
+2. **After `update_page_template`:** Call `render_page` and verify the template renders correctly.
+3. **After `generate_image` + `update_page_fields`:** Call `render_page` and specifically check that the image path appears in the rendered content, not just in the field data.
+
+**Do NOT tell the user "done" until `render_page` confirms zero CRITICAL issues.**
+
+If `render_page` reports a hardcoded background-image URL overriding a section_bg field, you MUST fix the template to remove the hardcoded style attribute before claiming success.
+
+### 2.5 When Something Goes Wrong
 
 1. **STOP.** Do not make more changes.
 2. **Read the error log:** `read_error_log`
