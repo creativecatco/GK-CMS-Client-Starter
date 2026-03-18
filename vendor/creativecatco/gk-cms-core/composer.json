@@ -2,7 +2,7 @@
     "name": "creativecatco/gk-cms-core",
     "description": "GKeys CMS — A powerful AI-ready content management system by Growth Keys. Provides page management, blog, media library, inline editing, site settings, user roles, SEO, and a Filament admin panel.",
     "type": "library",
-    "version": "0.8.5.3",
+    "version": "0.8.5.4",
     "license": "proprietary",
     "keywords": [
         "laravel",

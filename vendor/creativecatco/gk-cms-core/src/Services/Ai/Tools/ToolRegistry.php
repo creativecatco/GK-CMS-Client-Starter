@@ -117,6 +117,7 @@ class ToolRegistry
         // Page tools
         $registry->register(new CreatePageTool());
         $registry->register(new UpdatePageTemplateTool());
+        $registry->register(new PatchPageTemplateTool());
         $registry->register(new UpdatePageFieldsTool());
         $registry->register(new DeletePageTool());
 

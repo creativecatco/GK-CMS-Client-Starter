@@ -528,11 +528,11 @@ class AiOrchestrator
         // For get_page_info: preserve field_map (has type info), trim template
         if ($toolName === 'get_page_info' && is_array($data)) {
             // Truncate the template which is usually the largest part
-            if (isset($data['template']) && is_string($data['template']) && strlen($data['template']) > 1000) {
-                $data['template'] = mb_substr($data['template'], 0, 1000) . '\n... [template truncated — use get_page_info to see full template]';
+            if (isset($data['template']) && is_string($data['template']) && strlen($data['template']) > 3000) {
+                $data['template'] = mb_substr($data['template'], 0, 3000) . '\n... [template truncated — for small fixes use patch_page_template with find/replace instead of replacing the full template]';
             }
-            if (isset($data['custom_template']) && is_string($data['custom_template']) && strlen($data['custom_template']) > 1000) {
-                $data['custom_template'] = mb_substr($data['custom_template'], 0, 1000) . '\n... [truncated]';
+            if (isset($data['custom_template']) && is_string($data['custom_template']) && strlen($data['custom_template']) > 3000) {
+                $data['custom_template'] = mb_substr($data['custom_template'], 0, 3000) . '\n... [template truncated — for small fixes use patch_page_template with find/replace instead of replacing the full template]';
             }
             // Remove field_definitions if field_map is present (field_map already includes type info)
             if (isset($data['field_map']) && isset($data['field_definitions'])) {
@@ -545,7 +545,7 @@ class AiOrchestrator
 
             $truncated = $result;
             $truncated['data'] = $data;
-            $truncated['_note'] = 'Template truncated to save tokens. field_map contains all field types and values.';
+            $truncated['_note'] = 'Template truncated to save tokens. field_map contains all field types and values. For small template fixes, use patch_page_template (find/replace) instead of update_page_template (full replacement).';
             $encoded = json_encode($truncated);
 
             if (strlen($encoded) <= $maxSize) {

@@ -25,10 +25,16 @@ Before calling ANY tool, mentally answer:
 | Change an image on a page | `update_page_fields` | `update_page_template` |
 | Change text/heading/content | `update_page_fields` | `update_page_template` |
 | Change a button link or text | `update_page_fields` | `update_page_template` |
+| Remove a hardcoded style from template | `patch_page_template` (find/replace) | `update_page_template` (full replace) |
+| Fix a small template issue | `patch_page_template` (surgical edit) | `update_page_template` (full replace) |
 | Add a new section to a page | `update_page_template` (after `get_page_info`) | Blind template rewrite |
 | Rearrange page layout | `update_page_template` (after `get_page_info`) | Blind template rewrite |
 | Fix a broken page | `read_error_log` first, then diagnose | Rewriting the template |
 | Change site colors/fonts | `update_theme` | `update_page_template` |
+
+**`patch_page_template` vs `update_page_template`:**
+- `patch_page_template` = surgical find-and-replace. Use for small fixes (remove a style attribute, change a class, fix a typo). Safe, no risk of dropping fields.
+- `update_page_template` = full template replacement. Use ONLY when restructuring the entire page layout. Requires you to have the COMPLETE template.
 
 **The #1 mistake is using `update_page_template` when `update_page_fields` is the correct tool.** Template updates replace the ENTIRE template code and can break pages. Field updates only change data values and are always safe.
 
@@ -57,7 +63,18 @@ After ANY change to a page, you MUST verify it actually worked:
 
 If `render_page` reports a hardcoded background-image URL overriding a section_bg field, you MUST fix the template to remove the hardcoded style attribute before claiming success.
 
-### 2.5 When Something Goes Wrong
+### 2.5 Loop Detection (CRITICAL)
+
+If the **same tool fails 2 times** with the same or similar error:
+1. **STOP immediately.** Do NOT call it a third time.
+2. **Tell the user** what failed and why.
+3. **Try a completely different approach:**
+   - If `update_page_template` keeps failing with "would remove fields" → use `patch_page_template` instead (find/replace).
+   - If `update_page_fields` fails → check the field type with `get_page_info` and load the relevant knowledge module.
+   - If `render_page` shows the same issue after your fix → your fix didn't work. Diagnose WHY before trying again.
+4. **Never repeat the same tool call with the same parameters more than twice.**
+
+### 2.6 When Something Goes Wrong
 
 1. **STOP.** Do not make more changes.
 2. **Read the error log:** `read_error_log`
