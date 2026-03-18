@@ -73,6 +73,9 @@ class ToolRegistry
      * - read_file, write_file, list_files (~3K tokens) - debugging tools
      * - run_artisan (~1K tokens) - debugging tool
      * - read_error_log (~1K tokens) - debugging tool
+     *
+     * NOTE: generate_image and upload_image are NOT excluded — image generation
+     * is a core feature that must always be available to the AI.
      */
     public function getLightweightToolDefinitions(): array
     {
@@ -80,7 +83,6 @@ class ToolRegistry
             'scan_website',
             'create_plugin',
             'render_page',
-            'generate_image',
             'run_query',
             'read_file',
             'write_file',

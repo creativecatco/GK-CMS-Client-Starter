@@ -127,7 +127,7 @@ return [
     | The current version of GKeys CMS core package.
     |
     */
-    'version' => '0.7.2',
+    'version' => '0.8.3',
 
     /*
     |--------------------------------------------------------------------------
@@ -155,6 +155,21 @@ return [
     |
     */
     'release_repo' => env('CMS_RELEASE_REPO', 'creativecatco/GK-CMS-Client-Starter'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Auto Repair on Update
+    |--------------------------------------------------------------------------
+    |
+    | When enabled, the CMS will automatically run a database health check
+    | after each update and repair any detected issues. This is a smart
+    | patch system — it only runs repairs when issues are actually found.
+    |
+    | Set to false to disable automatic repairs (you can still run them
+    | manually via the admin panel or `php artisan cms:health --repair`).
+    |
+    */
+    'auto_repair_on_update' => env('CMS_AUTO_REPAIR', true),
 
     /*
     |--------------------------------------------------------------------------

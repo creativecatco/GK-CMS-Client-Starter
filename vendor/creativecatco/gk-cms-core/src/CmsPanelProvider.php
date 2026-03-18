@@ -23,6 +23,7 @@ use CreativeCatCo\GkCmsCore\Filament\Pages\PluginsPage;
 use CreativeCatCo\GkCmsCore\Filament\Pages\UpdatesPage;
 use CreativeCatCo\GkCmsCore\Filament\Pages\ThemeBuilderPage;
 use CreativeCatCo\GkCmsCore\Filament\Pages\AiAssistant;
+use CreativeCatCo\GkCmsCore\Filament\Pages\DatabaseHealthPage;
 use CreativeCatCo\GkCmsCore\Filament\Widgets\StatsOverviewWidget;
 use CreativeCatCo\GkCmsCore\Filament\Widgets\RecentActivityWidget;
 use CreativeCatCo\GkCmsCore\Filament\Widgets\QuickActionsWidget;
@@ -81,6 +82,7 @@ class CmsPanelProvider extends PanelProvider
                 PluginsPage::class,
                 UpdatesPage::class,
                 ThemeBuilderPage::class,
+                DatabaseHealthPage::class,
             ])
             ->widgets([
                 StatsOverviewWidget::class,

@@ -2,7 +2,7 @@
     "name": "creativecatco/gk-cms-core",
     "description": "GKeys CMS — A powerful AI-ready content management system by Growth Keys. Provides page management, blog, media library, inline editing, site settings, user roles, SEO, and a Filament admin panel.",
     "type": "library",
-    "version": "0.7.2",
+    "version": "0.8.3",
     "license": "proprietary",
     "keywords": [
         "laravel",
@@ -21,7 +21,7 @@
         }
     ],
     "require": {
-        "php": "^8.2",
+        "php": "^8.1",
         "illuminate/support": "^10.0|^11.0",
         "illuminate/database": "^10.0|^11.0",
         "illuminate/routing": "^10.0|^11.0",
@@ -34,11 +34,9 @@
         "filament/notifications": "^3.0",
         "filament/widgets": "^3.0",
         "livewire/livewire": "^3.0",
-        "spatie/laravel-sluggable": "^3.6"
-    },
-    "require-dev": {
-        "orchestra/testbench": "^9.0",
-        "phpunit/phpunit": "^11.0"
+        "spatie/laravel-sluggable": "^3.6",
+        "symfony/dom-crawler": "^7.4",
+        "symfony/css-selector": "^7.4"
     },
     "autoload": {
         "psr-4": {

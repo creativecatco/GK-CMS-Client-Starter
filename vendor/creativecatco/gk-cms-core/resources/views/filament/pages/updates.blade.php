@@ -4,12 +4,12 @@
         <div class="fi-section rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10 p-6">
             <div class="flex items-center justify-between">
                 <div>
-                    <h2 class="text-lg font-bold">GKeys CMS</h2>
+                    <h2 class="text-lg font-bold text-gray-900 dark:text-white">GKeys CMS</h2>
                     <p class="text-sm text-gray-500 dark:text-gray-400">
-                        Installed Version: <span class="font-mono font-semibold text-gray-700 dark:text-gray-300">{{ $this->displayVersion }}</span>
+                        Installed Version: <span class="font-mono font-semibold text-gray-700 dark:text-gray-200">{{ $this->displayVersion }}</span>
                     </p>
-                    <p class="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-                        Update Channel: <span class="font-mono">{{ $updateChannel }}</span>
+                    <p class="text-xs text-gray-400 dark:text-gray-400 mt-0.5">
+                        Update Channel: <span class="font-mono text-gray-500 dark:text-gray-300">{{ $updateChannel }}</span>
                     </p>
                 </div>
                 <button wire:click="checkForUpdates" wire:loading.attr="disabled" wire:target="checkForUpdates"
@@ -37,10 +37,10 @@
                         </svg>
                     </div>
                     <div>
-                        <h3 class="font-semibold text-amber-700 dark:text-amber-400">
+                        <h3 class="font-semibold text-amber-700 dark:text-amber-300">
                             Update Available: {{ $this->displayLatestVersion }}
                         </h3>
-                        <p class="text-sm text-amber-600 dark:text-amber-500">
+                        <p class="text-sm text-amber-600 dark:text-amber-400">
                             {{ $this->displayVersion }} &rarr; {{ $this->displayLatestVersion }}
                             @if($latestDate) &middot; Released {{ $latestDate }} @endif
                         </p>
@@ -76,8 +76,8 @@
                     </svg>
                 </div>
                 <div>
-                    <h3 class="font-semibold text-green-700 dark:text-green-400">Up to Date</h3>
-                    <p class="text-sm text-green-600 dark:text-green-500">
+                    <h3 class="font-semibold text-green-700 dark:text-green-300">Up to Date</h3>
+                    <p class="text-sm text-green-600 dark:text-green-400">
                         You are running the latest version of GKeys CMS ({{ $this->displayVersion }}).
                     </p>
                 </div>
@@ -88,7 +88,7 @@
         {{-- Update Log (shown during/after update via JS) --}}
         <div id="updateLogSection" style="display:none;" class="fi-section rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10 p-6">
             <div class="flex items-center justify-between mb-3">
-                <h3 class="font-semibold">Update Log</h3>
+                <h3 class="font-semibold text-gray-900 dark:text-white">Update Log</h3>
                 <span id="updateStatus" class="text-xs px-2 py-1 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-400 font-medium">Starting...</span>
             </div>
             <pre id="updateLogOutput" class="text-xs font-mono bg-gray-950 text-green-400 p-4 rounded-lg overflow-x-auto max-h-96 overflow-y-auto whitespace-pre-wrap">Preparing update...\n</pre>
@@ -101,7 +101,7 @@
                 <svg class="w-5 h-5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
                 </svg>
-                <h3 class="font-semibold">Protected Templates</h3>
+                <h3 class="font-semibold text-gray-900 dark:text-white">Protected Templates</h3>
             </div>
             <p class="text-sm text-gray-500 dark:text-gray-400 mb-3">
                 The following templates have been customized and will not be overwritten during updates:
@@ -120,7 +120,7 @@
         {{-- Changelog --}}
         @if(!empty($changelog))
         <div class="fi-section rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10 p-6">
-            <h3 class="font-semibold mb-4">Changelog</h3>
+            <h3 class="font-semibold mb-4 text-gray-900 dark:text-white">Changelog</h3>
             <div class="prose prose-sm dark:prose-invert max-w-none text-sm">
                 {!! \Illuminate\Support\Str::markdown($changelog) !!}
             </div>
@@ -129,7 +129,7 @@
 
         {{-- Manual Update Instructions --}}
         <div class="fi-section rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10 p-6">
-            <h3 class="font-semibold mb-3">Manual Update</h3>
+            <h3 class="font-semibold mb-3 text-gray-900 dark:text-white">Manual Update</h3>
             <p class="text-sm text-gray-500 dark:text-gray-400 mb-3">
                 If the one-click update doesn't work, you can update manually via SSH:
             </p>

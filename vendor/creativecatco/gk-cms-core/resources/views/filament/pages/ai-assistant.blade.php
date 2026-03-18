@@ -34,6 +34,149 @@
             .fi-page > div { gap: 0 !important; }
             /* Make the main content area fill available width */
             .fi-main-ctn { width: 100% !important; }
+
+            /* ── Message formatting ── */
+            .ai-msg-content p { margin-bottom: 0.75em; }
+            .ai-msg-content p:last-child { margin-bottom: 0; }
+            .ai-msg-content ul, .ai-msg-content ol { margin-bottom: 0.75em; padding-left: 1.5em; }
+            .ai-msg-content li { margin-bottom: 0.25em; }
+            .ai-msg-content h1, .ai-msg-content h2, .ai-msg-content h3 { margin-top: 1em; margin-bottom: 0.5em; }
+            .ai-msg-content pre { margin: 0.75em 0; }
+
+            /* ── Collapsible code blocks ── */
+            .ai-code-accordion { margin: 0.75em 0; border-radius: 0.75rem; overflow: hidden; border: 1px solid rgba(107, 114, 128, 0.2); }
+            .ai-code-accordion summary {
+                cursor: pointer; padding: 0.5rem 0.75rem; font-size: 0.75rem; font-weight: 500;
+                background: rgba(107, 114, 128, 0.08); color: #6b7280;
+                display: flex; align-items: center; gap: 0.5rem; user-select: none;
+                list-style: none;
+            }
+            .ai-code-accordion summary::-webkit-details-marker { display: none; }
+            .ai-code-accordion summary::before {
+                content: '\25B6'; font-size: 0.6em; transition: transform 0.2s;
+            }
+            .ai-code-accordion[open] summary::before { transform: rotate(90deg); }
+            .ai-code-accordion pre { margin: 0 !important; border-radius: 0 !important; max-height: 400px; overflow: auto; }
+
+            /* ── Pulsing/Glowing activity indicator (Manus-style) ── */
+            @keyframes ai-pulse-glow {
+                0%, 100% { box-shadow: 0 0 8px rgba(99, 102, 241, 0.15); }
+                50% { box-shadow: 0 0 20px rgba(99, 102, 241, 0.35), 0 0 40px rgba(99, 102, 241, 0.1); }
+            }
+            @keyframes ai-shimmer {
+                0% { background-position: -200% center; }
+                100% { background-position: 200% center; }
+            }
+            @keyframes ai-dot-pulse {
+                0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+                40% { opacity: 1; transform: scale(1.2); }
+            }
+            .ai-activity-card {
+                animation: ai-pulse-glow 2s ease-in-out infinite;
+                background: linear-gradient(135deg, rgba(99, 102, 241, 0.05), rgba(139, 92, 246, 0.08));
+                border: 1px solid rgba(99, 102, 241, 0.2);
+                border-radius: 1rem; padding: 0.75rem 1rem;
+            }
+            .dark .ai-activity-card {
+                background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.15));
+                border-color: rgba(99, 102, 241, 0.3);
+            }
+            .ai-status-text {
+                background: linear-gradient(90deg, currentColor 0%, rgba(99,102,241,0.6) 50%, currentColor 100%);
+                background-size: 200% auto;
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+                animation: ai-shimmer 3s linear infinite;
+            }
+            .ai-dot {
+                width: 6px; height: 6px; border-radius: 50%;
+                background: var(--primary-500, #6366f1);
+                animation: ai-dot-pulse 1.4s ease-in-out infinite;
+            }
+            .ai-dot:nth-child(2) { animation-delay: 0.2s; }
+            .ai-dot:nth-child(3) { animation-delay: 0.4s; }
+
+            /* ── Tool call indicators ── */
+            .ai-tool-running { animation: ai-pulse-glow 2s ease-in-out infinite; }
+
+            /* ── Image citation badge ── */
+            .ai-img-citation {
+                display: inline-flex; align-items: center; gap: 0.25rem;
+                padding: 0.125rem 0.5rem; border-radius: 9999px;
+                font-size: 0.65rem; background: rgba(99, 102, 241, 0.1);
+                color: #6366f1; margin-top: 0.25rem;
+            }
+
+            /* ── Inline success/error result messages ── */
+            .ai-tool-success {
+                display: flex; align-items: center; gap: 0.5rem;
+                padding: 0.375rem 0.75rem; border-radius: 0.75rem;
+                font-size: 0.75rem; font-weight: 500;
+                background: rgba(16, 185, 129, 0.08);
+                border: 1px solid rgba(16, 185, 129, 0.2);
+                color: #059669;
+                margin-top: 0.25rem;
+                animation: ai-fade-in 0.3s ease-out;
+            }
+            .dark .ai-tool-success {
+                background: rgba(16, 185, 129, 0.12);
+                border-color: rgba(16, 185, 129, 0.25);
+                color: #34d399;
+            }
+            .ai-tool-error-msg {
+                display: flex; align-items: center; gap: 0.5rem;
+                padding: 0.375rem 0.75rem; border-radius: 0.75rem;
+                font-size: 0.75rem; font-weight: 500;
+                background: rgba(239, 68, 68, 0.08);
+                border: 1px solid rgba(239, 68, 68, 0.2);
+                color: #dc2626;
+                margin-top: 0.25rem;
+                animation: ai-fade-in 0.3s ease-out;
+            }
+            .dark .ai-tool-error-msg {
+                background: rgba(239, 68, 68, 0.12);
+                border-color: rgba(239, 68, 68, 0.25);
+                color: #f87171;
+            }
+            @keyframes ai-fade-in {
+                from { opacity: 0; transform: translateY(-4px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+
+            /* ── Generated image preview in chat ── */
+            .ai-gen-image-preview {
+                margin-top: 0.5rem;
+                border-radius: 0.75rem;
+                overflow: hidden;
+                border: 1px solid rgba(107, 114, 128, 0.2);
+                max-width: 280px;
+                animation: ai-fade-in 0.4s ease-out;
+            }
+            .ai-gen-image-preview img {
+                width: 100%; height: auto; display: block;
+                max-height: 200px; object-fit: cover;
+            }
+            .ai-gen-image-preview .ai-gen-image-meta {
+                padding: 0.375rem 0.625rem;
+                background: rgba(107, 114, 128, 0.05);
+                border-top: 1px solid rgba(107, 114, 128, 0.1);
+            }
+
+            /* ── Collapsible HTML in tool results ── */
+            .ai-html-accordion { margin: 0.5rem 0; border-radius: 0.75rem; overflow: hidden; border: 1px solid rgba(107, 114, 128, 0.2); }
+            .ai-html-accordion summary {
+                cursor: pointer; padding: 0.5rem 0.75rem; font-size: 0.7rem; font-weight: 500;
+                background: rgba(107, 114, 128, 0.06); color: #6b7280;
+                display: flex; align-items: center; gap: 0.5rem; user-select: none;
+                list-style: none;
+            }
+            .ai-html-accordion summary::-webkit-details-marker { display: none; }
+            .ai-html-accordion summary::before {
+                content: '\25B6'; font-size: 0.55em; transition: transform 0.2s;
+            }
+            .ai-html-accordion[open] summary::before { transform: rotate(90deg); }
+            .ai-html-accordion pre { margin: 0 !important; border-radius: 0 !important; max-height: 300px; overflow: auto; font-size: 0.7rem; }
         </style>
 
         <div x-data="aiAssistant()" x-init="init()" class="flex gap-0 w-full" style="height: calc(100vh - 4rem);">
@@ -185,7 +328,7 @@
                                                 </div>
                                                 <span class="text-xs font-medium text-gray-500 dark:text-gray-400">AI Assistant</span>
                                             </div>
-                                            <div class="px-4 py-3 rounded-2xl rounded-bl-md bg-gray-100 dark:bg-gray-700 text-sm prose prose-sm dark:prose-invert max-w-none"
+                                            <div class="ai-msg-content px-4 py-3 rounded-2xl rounded-bl-md bg-gray-100 dark:bg-gray-700 text-sm prose prose-sm dark:prose-invert max-w-none"
                                                  x-html="renderMarkdown(msg.content)">
                                             </div>
                                         </div>
@@ -193,28 +336,106 @@
 
                                     {{-- Tool Call Indicator --}}
                                     <div x-show="msg.role === 'tool_call'" class="flex justify-start pl-8">
-                                        <div class="flex items-center gap-2 px-3 py-2 rounded-lg text-xs border"
-                                             :class="{
-                                                 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800': msg.status === 'running',
-                                                 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800': msg.status === 'done',
-                                                 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800': msg.status === 'error',
-                                             }">
-                                            <svg class="w-3 h-3 text-blue-500 animate-spin" x-show="msg.status === 'running'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                            </svg>
-                                            <x-heroicon-o-check-circle x-show="msg.status === 'done'" class="w-3 h-3 text-green-500" />
-                                            <x-heroicon-o-x-circle x-show="msg.status === 'error'" class="w-3 h-3 text-red-500" />
-                                            <span class="font-mono" x-text="formatToolName(msg.tool_name)"></span>
-                                            <button @click="msg.expanded = !msg.expanded" class="text-blue-500 hover:text-blue-700 ml-1">
-                                                <span x-text="msg.expanded ? 'Hide' : 'Details'"></span>
-                                            </button>
+                                        <div class="w-full max-w-[85%]">
+                                            {{-- Tool status bar --}}
+                                            <div class="flex items-center gap-2 px-3 py-2 rounded-lg text-xs border transition-all duration-300"
+                                                 :class="{
+                                                     'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800 ai-tool-running': msg.status === 'running',
+                                                     'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800': msg.status === 'done',
+                                                     'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800': msg.status === 'error',
+                                                 }">
+                                                <svg class="w-3 h-3 text-blue-500 animate-spin" x-show="msg.status === 'running'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                </svg>
+                                                <x-heroicon-o-check-circle x-show="msg.status === 'done'" class="w-3 h-3 text-green-500" />
+                                                <x-heroicon-o-x-circle x-show="msg.status === 'error'" class="w-3 h-3 text-red-500" />
+                                                <span class="font-mono" x-text="formatToolName(msg.tool_name)"></span>
+                                                <button @click="msg.expanded = !msg.expanded" class="text-blue-500 hover:text-blue-700 ml-auto">
+                                                    <span x-text="msg.expanded ? 'Hide' : 'Details'"></span>
+                                                </button>
+                                            </div>
+
+                                            {{-- Success message with context --}}
+                                            <template x-if="msg.status === 'done' && msg.result?.success && msg.result?.message">
+                                                <div class="ai-tool-success mt-1">
+                                                    <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+                                                    <span x-text="msg.result.message"></span>
+                                                </div>
+                                            </template>
+
+                                            {{-- Error message --}}
+                                            <template x-if="msg.status === 'error' && msg.result?.error">
+                                                <div class="ai-tool-error-msg mt-1">
+                                                    <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                                                    <span x-text="msg.result.error"></span>
+                                                </div>
+                                            </template>
+
+                                            {{-- Generated image preview with citation --}}
+                                            <template x-if="msg.tool_name === 'generate_image' && msg.status === 'done' && msg.result?.success && msg.result?.data?.url">
+                                                <div class="ai-gen-image-preview">
+                                                    <a :href="msg.result.data.url" target="_blank">
+                                                        <img :src="msg.result.data.url" :alt="msg.result.data.alt_text || 'Generated image'" loading="lazy" />
+                                                    </a>
+                                                    <div class="ai-gen-image-meta">
+                                                        <div class="flex items-center justify-between">
+                                                            <span class="text-[11px] font-medium text-gray-600 dark:text-gray-400" x-text="msg.result.data.filename || 'generated-image.png'"></span>
+                                                            <span class="text-[10px] text-gray-400" x-text="msg.result.data.aspect_ratio || ''"></span>
+                                                        </div>
+                                                        <template x-if="msg.result.data.citation">
+                                                            <div class="ai-img-citation mt-1">
+                                                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                                                                <span x-text="msg.result.data.citation"></span>
+                                                            </div>
+                                                        </template>
+                                                    </div>
+                                                </div>
+                                            </template>
+
+                                            {{-- Uploaded image preview --}}
+                                            <template x-if="msg.tool_name === 'upload_image' && msg.status === 'done' && msg.result?.success && msg.result?.data?.url">
+                                                <div class="ai-gen-image-preview">
+                                                    <a :href="msg.result.data.url" target="_blank">
+                                                        <img :src="msg.result.data.url" :alt="msg.result.data.alt_text || 'Uploaded image'" loading="lazy" />
+                                                    </a>
+                                                    <div class="ai-gen-image-meta">
+                                                        <span class="text-[11px] font-medium text-gray-600 dark:text-gray-400" x-text="msg.result.data.filename || 'image'"></span>
+                                                    </div>
+                                                </div>
+                                            </template>
                                         </div>
                                     </div>
-                                    <div x-show="msg.role === 'tool_call' && msg.expanded" x-transition class="pl-8 mt-1">
-                                        <pre class="text-xs bg-gray-900 text-gray-100 p-3 rounded-lg overflow-x-auto max-h-40" x-text="JSON.stringify(msg.params, null, 2)"></pre>
+
+                                    {{-- Expanded tool details (collapsible) --}}
+                                    <div x-show="msg.role === 'tool_call' && msg.expanded" x-transition class="pl-8 mt-1 max-w-[85%]">
+                                        {{-- Tool params - collapsible if large --}}
+                                        <template x-if="msg.params && hasLargeHtml(msg.params)">
+                                            <details class="ai-html-accordion">
+                                                <summary>
+                                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
+                                                    View tool parameters
+                                                </summary>
+                                                <pre class="text-xs bg-gray-900 text-gray-100 p-3 overflow-x-auto" x-text="JSON.stringify(msg.params, null, 2)"></pre>
+                                            </details>
+                                        </template>
+                                        <template x-if="msg.params && !hasLargeHtml(msg.params)">
+                                            <pre class="text-xs bg-gray-900 text-gray-100 p-3 rounded-lg overflow-x-auto max-h-40" x-text="JSON.stringify(msg.params, null, 2)"></pre>
+                                        </template>
+                                        {{-- Tool result - collapsible if large --}}
                                         <div x-show="msg.result" class="mt-1">
-                                            <pre class="text-xs bg-gray-900 text-gray-100 p-3 rounded-lg overflow-x-auto max-h-40" x-text="JSON.stringify(msg.result, null, 2)"></pre>
+                                            <template x-if="msg.result && hasLargeHtml(msg.result)">
+                                                <details class="ai-html-accordion">
+                                                    <summary>
+                                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                                                        View tool result
+                                                    </summary>
+                                                    <pre class="text-xs bg-gray-900 text-gray-100 p-3 overflow-x-auto" x-text="JSON.stringify(msg.result, null, 2)"></pre>
+                                                </details>
+                                            </template>
+                                            <template x-if="msg.result && !hasLargeHtml(msg.result)">
+                                                <pre class="text-xs bg-gray-900 text-gray-100 p-3 rounded-lg overflow-x-auto max-h-40" x-text="JSON.stringify(msg.result, null, 2)"></pre>
+                                            </template>
                                         </div>
                                     </div>
                                 </div>
@@ -264,9 +485,9 @@
                                 </div>
                             </div>
 
-                            {{-- Thinking / Progress Indicator --}}
+                            {{-- Thinking / Progress Indicator (Manus-style) --}}
                             <div x-show="isStreaming && (!currentStreamText || isThinking || activeToolName)" class="flex justify-start">
-                                <div class="max-w-[90%]">
+                                <div class="max-w-[90%] w-full">
                                     <div class="flex items-center gap-2 mb-1">
                                         <div class="w-6 h-6 rounded-full bg-primary-100 dark:bg-primary-900 flex items-center justify-center">
                                             <x-heroicon-o-sparkles class="w-3 h-3 text-primary-500" />
@@ -274,32 +495,45 @@
                                         <span class="text-xs font-medium text-gray-500 dark:text-gray-400">AI Assistant</span>
                                         <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
                                     </div>
-                                    <div class="px-4 py-3 rounded-2xl rounded-bl-md bg-gray-100 dark:bg-gray-700">
+                                    <div class="ai-activity-card">
                                         {{-- Activity log showing what the AI is doing --}}
-                                        <div class="space-y-1.5">
+                                        <div class="space-y-2" x-show="thinkingSteps.length > 0">
                                             <template x-for="(step, sIdx) in thinkingSteps" :key="sIdx">
-                                                <div class="flex items-center gap-2 text-xs">
+                                                <div class="flex items-center gap-2.5 text-xs transition-all duration-300"
+                                                     :class="{'opacity-50': step.status === 'done'}">
                                                     <template x-if="step.status === 'done'">
-                                                        <svg class="w-3.5 h-3.5 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                                                        <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
                                                     </template>
                                                     <template x-if="step.status === 'running'">
-                                                        <svg class="w-3.5 h-3.5 text-blue-500 animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                                                        <svg class="w-4 h-4 text-indigo-500 animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
                                                     </template>
                                                     <template x-if="step.status === 'error'">
-                                                        <svg class="w-3.5 h-3.5 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                                                        <svg class="w-4 h-4 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                                                     </template>
-                                                    <span class="text-gray-600 dark:text-gray-300" :class="{'text-gray-400 dark:text-gray-500': step.status === 'done'}" x-text="step.text"></span>
+                                                    <span class="text-gray-700 dark:text-gray-300" :class="{
+                                                        'text-gray-400 dark:text-gray-500 line-through': step.status === 'done',
+                                                        'font-medium': step.status === 'running'
+                                                    }" x-text="step.text"></span>
                                                 </div>
                                             </template>
                                         </div>
-                                        {{-- Current activity with bouncing dots --}}
-                                        <div class="flex items-center gap-2 mt-2" x-show="isThinking || activeToolName">
-                                            <div class="flex gap-0.5">
-                                                <div class="w-1.5 h-1.5 bg-primary-400 rounded-full animate-bounce" style="animation-delay: 0ms"></div>
-                                                <div class="w-1.5 h-1.5 bg-primary-400 rounded-full animate-bounce" style="animation-delay: 150ms"></div>
-                                                <div class="w-1.5 h-1.5 bg-primary-400 rounded-full animate-bounce" style="animation-delay: 300ms"></div>
+                                        {{-- Current activity with pulsing dots (Manus-style) --}}
+                                        <div class="flex items-center gap-3" :class="{'mt-3': thinkingSteps.length > 0}" x-show="isThinking || activeToolName">
+                                            <div class="flex gap-1">
+                                                <div class="ai-dot"></div>
+                                                <div class="ai-dot"></div>
+                                                <div class="ai-dot"></div>
                                             </div>
-                                            <span class="text-xs text-gray-500 dark:text-gray-400" x-text="statusMessage || 'Thinking...'"></span>
+                                            <span class="text-xs font-medium ai-status-text" x-text="statusMessage || 'Thinking...'"></span>
+                                        </div>
+                                        {{-- Fallback when no steps yet --}}
+                                        <div class="flex items-center gap-3" x-show="thinkingSteps.length === 0 && !isThinking && !activeToolName">
+                                            <div class="flex gap-1">
+                                                <div class="ai-dot"></div>
+                                                <div class="ai-dot"></div>
+                                                <div class="ai-dot"></div>
+                                            </div>
+                                            <span class="text-xs font-medium ai-status-text">Processing your request...</span>
                                         </div>
                                     </div>
                                 </div>
@@ -315,7 +549,7 @@
                                         <span class="text-xs font-medium text-gray-500 dark:text-gray-400">AI Assistant</span>
                                         <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
                                     </div>
-                                    <div class="px-4 py-3 rounded-2xl rounded-bl-md bg-gray-100 dark:bg-gray-700 text-sm prose prose-sm dark:prose-invert max-w-none"
+                                    <div class="ai-msg-content px-4 py-3 rounded-2xl rounded-bl-md bg-gray-100 dark:bg-gray-700 text-sm prose prose-sm dark:prose-invert max-w-none"
                                          x-html="renderMarkdown(currentStreamText)">
                                     </div>
                                 </div>
@@ -1465,31 +1699,74 @@
 
                 renderMarkdown(text) {
                     if (!text) return '';
+                    let html = '';
                     if (window.marked) {
                         try {
-                            return marked.parse(text);
+                            html = marked.parse(text);
                         } catch (e) {
-                            return this.basicMarkdown(text);
+                            html = this.basicMarkdown(text);
                         }
+                    } else {
+                        html = this.basicMarkdown(text);
                     }
-                    return this.basicMarkdown(text);
+                    // Wrap large code blocks in collapsible accordions
+                    html = this.wrapCodeBlocks(html);
+                    return html;
+                },
+
+                // Wrap large code blocks (>5 lines) in collapsible <details> elements
+                wrapCodeBlocks(html) {
+                    return html.replace(/<pre><code([^>]*)>(.*?)<\/code><\/pre>/gs, (match, attrs, code) => {
+                        const lineCount = (code.match(/\n/g) || []).length + 1;
+                        if (lineCount > 5) {
+                            // Detect language from class
+                            const langMatch = attrs.match(/class="[^"]*language-(\w+)/);
+                            const lang = langMatch ? langMatch[1].toUpperCase() : 'Code';
+                            const label = lang === 'HTML' || lang === 'BLADE' ? 'View generated HTML' :
+                                          lang === 'PHP' ? 'View generated PHP' :
+                                          lang === 'CSS' ? 'View generated CSS' :
+                                          `View generated code (${lang})`;
+                            return `<details class="ai-code-accordion"><summary><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>${label} (${lineCount} lines)</summary><pre><code${attrs}>${code}</code></pre></details>`;
+                        }
+                        return match;
+                    });
                 },
 
                 // Basic markdown fallback when marked.js isn't loaded
                 basicMarkdown(text) {
-                    return text
+                    let html = text
                         .replace(/&/g, '&amp;')
                         .replace(/</g, '&lt;')
                         .replace(/>/g, '&gt;')
                         .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
                         .replace(/\*(.+?)\*/g, '<em>$1</em>')
-                        .replace(/`(.+?)`/g, '<code class="bg-gray-200 dark:bg-gray-600 px-1 rounded text-xs">$1</code>')
-                        .replace(/\n/g, '<br>');
+                        .replace(/`(.+?)`/g, '<code class="bg-gray-200 dark:bg-gray-600 px-1 rounded text-xs">$1</code>');
+                    // Convert double newlines to paragraphs, single newlines to <br>
+                    html = html.split(/\n\n+/).map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
+                    return html;
                 },
 
                 formatToolName(name) {
                     if (!name) return '';
                     return name.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                },
+
+                // Check if an object contains large HTML or code content (>500 chars in any string value)
+                hasLargeHtml(obj) {
+                    if (!obj) return false;
+                    const str = JSON.stringify(obj);
+                    if (str.length > 1500) return true;
+                    // Check for HTML-like content in any value
+                    const checkValue = (val) => {
+                        if (typeof val === 'string' && val.length > 500) {
+                            return val.includes('<') || val.includes('{') || val.includes('\n');
+                        }
+                        if (typeof val === 'object' && val !== null) {
+                            return Object.values(val).some(checkValue);
+                        }
+                        return false;
+                    };
+                    return checkValue(obj);
                 },
 
                 // ─── Plan Detection & Tracking ───

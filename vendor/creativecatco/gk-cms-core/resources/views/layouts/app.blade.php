@@ -196,7 +196,28 @@
                 ->where('status', 'published')
                 ->first();
         @endphp
-        @if($headerPage && $headerPage->template)
+        @if($headerPage && $headerPage->template === 'custom' && !empty($headerPage->custom_template))
+            {{-- Custom template: render the stored HTML/Blade directly with error protection --}}
+            @php
+                try {
+                    $__headerSettings = method_exists(\CreativeCatCo\GkCmsCore\Models\Setting::class, 'allCached')
+                        ? \CreativeCatCo\GkCmsCore\Models\Setting::allCached()
+                        : (method_exists(\CreativeCatCo\GkCmsCore\Models\Setting::class, 'getGroup')
+                            ? \CreativeCatCo\GkCmsCore\Models\Setting::getGroup('general')
+                            : []);
+                    echo \Illuminate\Support\Facades\Blade::render($headerPage->custom_template, [
+                        'page' => $headerPage,
+                        'fields' => $headerPage->fields ?? [],
+                        'settings' => $__headerSettings,
+                    ]);
+                } catch (\Throwable $e) {
+                    if (config('app.debug')) {
+                        echo '<div style="background:#fee2e2;border:2px solid #ef4444;color:#991b1b;padding:16px;margin:8px;border-radius:8px;font-family:monospace;font-size:13px;"><strong>Header Template Error:</strong> ' . e($e->getMessage()) . '</div>';
+                    }
+                    \Illuminate\Support\Facades\Log::error('Header custom template render error: ' . $e->getMessage());
+                }
+            @endphp
+        @elseif($headerPage && $headerPage->template && $headerPage->template !== 'custom')
             @include('cms-core::pages.' . $headerPage->template, [
                 'page' => $headerPage,
                 'fields' => $headerPage->fields ?? [],
@@ -221,7 +242,28 @@
                 ->where('status', 'published')
                 ->first();
         @endphp
-        @if($footerPage && $footerPage->template)
+        @if($footerPage && $footerPage->template === 'custom' && !empty($footerPage->custom_template))
+            {{-- Custom template: render the stored HTML/Blade directly with error protection --}}
+            @php
+                try {
+                    $__footerSettings = method_exists(\CreativeCatCo\GkCmsCore\Models\Setting::class, 'allCached')
+                        ? \CreativeCatCo\GkCmsCore\Models\Setting::allCached()
+                        : (method_exists(\CreativeCatCo\GkCmsCore\Models\Setting::class, 'getGroup')
+                            ? \CreativeCatCo\GkCmsCore\Models\Setting::getGroup('general')
+                            : []);
+                    echo \Illuminate\Support\Facades\Blade::render($footerPage->custom_template, [
+                        'page' => $footerPage,
+                        'fields' => $footerPage->fields ?? [],
+                        'settings' => $__footerSettings,
+                    ]);
+                } catch (\Throwable $e) {
+                    if (config('app.debug')) {
+                        echo '<div style="background:#fee2e2;border:2px solid #ef4444;color:#991b1b;padding:16px;margin:8px;border-radius:8px;font-family:monospace;font-size:13px;"><strong>Footer Template Error:</strong> ' . e($e->getMessage()) . '</div>';
+                    }
+                    \Illuminate\Support\Facades\Log::error('Footer custom template render error: ' . $e->getMessage());
+                }
+            @endphp
+        @elseif($footerPage && $footerPage->template && $footerPage->template !== 'custom')
             @include('cms-core::pages.' . $footerPage->template, [
                 'page' => $footerPage,
                 'fields' => $footerPage->fields ?? [],

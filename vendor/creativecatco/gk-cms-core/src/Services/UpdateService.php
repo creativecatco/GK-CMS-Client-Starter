@@ -259,12 +259,14 @@ class UpdateService
         $logFile = $this->logFile;
         $lockFile = $this->lockFile;
 
+        $autoRepair = config('cms.auto_repair_on_update', true) ? 'true' : 'false';
+
         return <<<BASH
 #!/bin/bash
 cd "{$basePath}"
 
 # ─── Step 1: Composer Update (only the CMS core package) ───
-echo "[1/5] Running composer update..." >> "{$logFile}"
+echo "[1/6] Running composer update..." >> "{$logFile}"
 {$composerPath} update creativecatco/gk-cms-core --no-interaction --prefer-dist --no-dev 2>> "{$logFile}"
 COMPOSER_EXIT=\$?
 if [ \$COMPOSER_EXIT -ne 0 ]; then
@@ -278,27 +280,46 @@ echo "  Composer update completed successfully." >> "{$logFile}"
 
 # ─── Step 2: Database Migrations (additive only) ───
 echo "" >> "{$logFile}"
-echo "[2/5] Running database migrations..." >> "{$logFile}"
+echo "[2/6] Running database migrations..." >> "{$logFile}"
 {$phpBinary} artisan migrate --force >> "{$logFile}" 2>&1
 
 # ─── Step 3: Safe Template Publish (protects customer edits) ───
 echo "" >> "{$logFile}"
-echo "[3/5] Publishing templates (protecting customer edits)..." >> "{$logFile}"
+echo "[3/6] Publishing templates (protecting customer edits)..." >> "{$logFile}"
 {$phpBinary} artisan cms:safe-publish-templates >> "{$logFile}" 2>&1
 
 # ─── Step 4: Publish Admin Assets (always overwrite) ───
 echo "" >> "{$logFile}"
-echo "[4/5] Publishing admin assets..." >> "{$logFile}"
+echo "[4/6] Publishing admin assets..." >> "{$logFile}"
 {$phpBinary} artisan vendor:publish --tag=cms-assets --force >> "{$logFile}" 2>&1
 
 # ─── Step 5: Clear Caches ───
 echo "" >> "{$logFile}"
-echo "[5/5] Clearing caches..." >> "{$logFile}"
+echo "[5/6] Clearing caches..." >> "{$logFile}"
 {$phpBinary} artisan cache:clear >> "{$logFile}" 2>&1
 {$phpBinary} artisan view:clear >> "{$logFile}" 2>&1
 {$phpBinary} artisan config:clear >> "{$logFile}" 2>&1
 {$phpBinary} artisan route:clear >> "{$logFile}" 2>&1
+{$phpBinary} artisan package:discover >> "{$logFile}" 2>&1 || true
+{$phpBinary} artisan filament:clear-cached-components >> "{$logFile}" 2>&1 || true
 {$phpBinary} artisan filament:cache-components >> "{$logFile}" 2>&1 || true
+echo "  Caches cleared, packages re-discovered, Filament components re-cached." >> "{$logFile}"
+
+# ─── Step 6: Smart Repair Patch (auto-detect and fix issues) ───
+echo "" >> "{$logFile}"
+AUTO_REPAIR={$autoRepair}
+if [ "\$AUTO_REPAIR" = "true" ]; then
+    echo "[6/6] Running database health check..." >> "{$logFile}"
+    {$phpBinary} artisan cms:health --repair --auto >> "{$logFile}" 2>&1
+    HEALTH_EXIT=\$?
+    if [ \$HEALTH_EXIT -eq 0 ]; then
+        echo "  Database is healthy — no repairs needed." >> "{$logFile}"
+    else
+        echo "  Health check found and repaired issues (see above)." >> "{$logFile}"
+    fi
+else
+    echo "[6/6] Auto-repair is disabled (CMS_AUTO_REPAIR=false). Skipping health check." >> "{$logFile}"
+fi
 
 # ─── Done ───
 echo "" >> "{$logFile}"
@@ -320,6 +341,7 @@ BASH;
         $lockFile = $this->lockFile;
         $storagePath = storage_path();
         $escapedUrl = escapeshellarg($downloadUrl);
+        $autoRepair = config('cms.auto_repair_on_update', true) ? 'true' : 'false';
 
         return <<<BASH
 #!/bin/bash
@@ -373,10 +395,27 @@ if [ \$EXTRACT_EXIT -ne 0 ]; then
     exit 1
 fi
 
-# Find the extracted directory (may be gkeys-cms/ or similar)
-SOURCE_DIR=\$(find "\$TEMP_DIR" -maxdepth 1 -type d ! -name "\$(basename \$TEMP_DIR)" | head -1)
-if [ -z "\$SOURCE_DIR" ]; then
+# Find the source directory containing vendor/
+# Priority 1: If TEMP_DIR itself has vendor/, use it directly (flat zip)
+if [ -d "\$TEMP_DIR/vendor" ]; then
     SOURCE_DIR="\$TEMP_DIR"
+# Priority 2: Look for a subdirectory that contains vendor/
+else
+    SOURCE_DIR=""
+    for subdir in "\$TEMP_DIR"/*/; do
+        if [ -d "\$subdir/vendor" ]; then
+            SOURCE_DIR="\$subdir"
+            break
+        fi
+    done
+    # Priority 3: Fall back to first subdirectory (legacy behavior)
+    if [ -z "\$SOURCE_DIR" ]; then
+        SOURCE_DIR=\$(find "\$TEMP_DIR" -maxdepth 1 -type d ! -name "\$(basename \$TEMP_DIR)" | head -1)
+    fi
+    # Priority 4: Use TEMP_DIR itself
+    if [ -z "\$SOURCE_DIR" ]; then
+        SOURCE_DIR="\$TEMP_DIR"
+    fi
 fi
 
 echo "  Source directory: \$SOURCE_DIR" >> "{$logFile}"
@@ -392,61 +431,58 @@ if [ -d "\$SOURCE_DIR/vendor/creativecatco" ]; then
     echo "  Updated creativecatco/gk-cms-core package." >> "{$logFile}"
 fi
 
-# Update composer autoload files
-if [ -f "\$SOURCE_DIR/vendor/autoload.php" ]; then
-    cp "\$SOURCE_DIR/vendor/autoload.php" "{$basePath}/vendor/autoload.php"
+# NOTE: We intentionally do NOT replace autoload files or other vendor packages.
+# Each client site has its own composer-managed autoload and dependencies.
+# Only the CMS core package (creativecatco) should be updated.
+# After replacing the package, we regenerate the autoload to pick up any new classes.
+{$phpBinary} -r "require '{$basePath}/vendor/autoload.php';" 2>/dev/null
+if command -v composer &> /dev/null; then
+    cd "{$basePath}" && composer dump-autoload --no-interaction --quiet >> "{$logFile}" 2>&1 || true
 fi
-if [ -d "\$SOURCE_DIR/vendor/composer" ]; then
-    rm -rf "{$basePath}/vendor/composer"
-    cp -r "\$SOURCE_DIR/vendor/composer" "{$basePath}/vendor/composer"
-    echo "  Updated composer autoload files." >> "{$logFile}"
-fi
-
-# Update other vendor packages that may have changed
-for pkg_dir in "\$SOURCE_DIR/vendor/"*/; do
-    pkg_name=\$(basename "\$pkg_dir")
-    # Skip already handled dirs
-    if [ "\$pkg_name" = "creativecatco" ] || [ "\$pkg_name" = "composer" ] || [ "\$pkg_name" = "bin" ]; then
-        continue
-    fi
-    if [ -d "\$pkg_dir" ]; then
-        rm -rf "{$basePath}/vendor/\$pkg_name"
-        cp -r "\$pkg_dir" "{$basePath}/vendor/\$pkg_name"
-    fi
-done
-echo "  All vendor packages updated." >> "{$logFile}"
-
-# Update composer.json and composer.lock if present
-if [ -f "\$SOURCE_DIR/composer.json" ]; then
-    cp "\$SOURCE_DIR/composer.json" "{$basePath}/composer.json"
-fi
-if [ -f "\$SOURCE_DIR/composer.lock" ]; then
-    cp "\$SOURCE_DIR/composer.lock" "{$basePath}/composer.lock"
-fi
+echo "  CMS core package update complete." >> "{$logFile}"
 
 # ─── Step 4: Database Migrations (additive only) ───
 echo "" >> "{$logFile}"
-echo "[4/7] Running database migrations..." >> "{$logFile}"
+echo "[4/8] Running database migrations..." >> "{$logFile}"
 {$phpBinary} artisan migrate --force >> "{$logFile}" 2>&1
 
 # ─── Step 5: Safe Template Publish (protects customer edits) ───
 echo "" >> "{$logFile}"
-echo "[5/7] Publishing templates (protecting customer edits)..." >> "{$logFile}"
+echo "[5/8] Publishing templates (protecting customer edits)..." >> "{$logFile}"
 {$phpBinary} artisan cms:safe-publish-templates >> "{$logFile}" 2>&1
 
 # ─── Step 6: Publish Admin Assets (always overwrite) ───
 echo "" >> "{$logFile}"
-echo "[6/7] Publishing admin assets..." >> "{$logFile}"
+echo "[6/8] Publishing admin assets..." >> "{$logFile}"
 {$phpBinary} artisan vendor:publish --tag=cms-assets --force >> "{$logFile}" 2>&1
 
 # ─── Step 7: Clear Caches ───
 echo "" >> "{$logFile}"
-echo "[7/7] Clearing caches..." >> "{$logFile}"
+echo "[7/8] Clearing caches..." >> "{$logFile}"
 {$phpBinary} artisan cache:clear >> "{$logFile}" 2>&1
 {$phpBinary} artisan view:clear >> "{$logFile}" 2>&1
 {$phpBinary} artisan config:clear >> "{$logFile}" 2>&1
 {$phpBinary} artisan route:clear >> "{$logFile}" 2>&1
+{$phpBinary} artisan package:discover >> "{$logFile}" 2>&1 || true
+{$phpBinary} artisan filament:clear-cached-components >> "{$logFile}" 2>&1 || true
 {$phpBinary} artisan filament:cache-components >> "{$logFile}" 2>&1 || true
+echo "  Caches cleared, packages re-discovered, Filament components re-cached." >> "{$logFile}"
+
+# ─── Step 8: Smart Repair Patch (auto-detect and fix issues) ───
+echo "" >> "{$logFile}"
+AUTO_REPAIR={$autoRepair}
+if [ "\$AUTO_REPAIR" = "true" ]; then
+    echo "[8/8] Running database health check..." >> "{$logFile}"
+    {$phpBinary} artisan cms:health --repair --auto >> "{$logFile}" 2>&1
+    HEALTH_EXIT=\$?
+    if [ \$HEALTH_EXIT -eq 0 ]; then
+        echo "  Database is healthy — no repairs needed." >> "{$logFile}"
+    else
+        echo "  Health check found and repaired issues (see above)." >> "{$logFile}"
+    fi
+else
+    echo "[8/8] Auto-repair is disabled (CMS_AUTO_REPAIR=false). Skipping health check." >> "{$logFile}"
+fi
 
 # ─── Cleanup ───
 echo "" >> "{$logFile}"
@@ -510,17 +546,26 @@ BASH;
     }
 
     /**
-     * Get the currently installed version from the package's composer.json.
+     * Get the currently installed version from the package's own files.
+     *
+     * IMPORTANT: We read directly from the package's config file on disk,
+     * NOT from config('cms.version'), because the host app may have a
+     * published config/cms.php that overrides the package version and
+     * does not get updated during release-channel updates.
      */
     public function getInstalledVersion(): string
     {
-        // First try the config (most reliable after cache clear)
-        $configVersion = config('cms.version');
-        if ($configVersion && $configVersion !== '0.0.0') {
-            return $configVersion;
+        // 1. Read directly from the package's own config file (most reliable)
+        //    This bypasses Laravel's config merge/cache entirely.
+        $packageConfig = dirname(__DIR__) . '/../config/cms.php';
+        if (file_exists($packageConfig)) {
+            $config = @include $packageConfig;
+            if (is_array($config) && !empty($config['version']) && $config['version'] !== '0.0.0') {
+                return $config['version'];
+            }
         }
 
-        // Fallback: read from the package's own composer.json
+        // 2. Fallback: read from the package's own composer.json
         $packageComposer = dirname(__DIR__) . '/../composer.json';
         if (file_exists($packageComposer)) {
             $data = json_decode(file_get_contents($packageComposer), true);
@@ -529,15 +574,21 @@ BASH;
             }
         }
 
-        // Fallback: read from composer.lock
+        // 3. Fallback: read from composer.lock
         $composerLock = base_path('composer.lock');
         if (file_exists($composerLock)) {
             $lock = json_decode(file_get_contents($composerLock), true);
             foreach ($lock['packages'] ?? [] as $package) {
                 if ($package['name'] === 'creativecatco/gk-cms-core') {
-                    return $package['version'] ?? 'dev-main';
+                    return ltrim($package['version'] ?? 'dev-main', 'v');
                 }
             }
+        }
+
+        // 4. Last resort: try config() (may be stale from published config)
+        $configVersion = config('cms.version');
+        if ($configVersion && $configVersion !== '0.0.0') {
+            return $configVersion;
         }
 
         return 'dev-main';
@@ -580,6 +631,9 @@ BASH;
                 $tag = $release['tag_name'] ?? '';
                 $version = ltrim($tag, 'v');
 
+                // Strip channel suffixes like '-client' for clean version comparison
+                $version = preg_replace('/-(?:client|beta|alpha|rc)\d*$/i', '', $version);
+
                 // For release channel, find the zip download URL
                 $downloadUrl = '';
                 if ($this->channel === 'release') {
@@ -618,6 +672,9 @@ BASH;
                     $latestTag = $tags[0];
                     $tag = $latestTag['name'] ?? '';
                     $version = ltrim($tag, 'v');
+
+                    // Strip channel suffixes like '-client' for clean version comparison
+                    $version = preg_replace('/-(?:client|beta|alpha|rc)\d*$/i', '', $version);
 
                     // Get the tag's commit date
                     $commitSha = $latestTag['commit']['sha'] ?? '';

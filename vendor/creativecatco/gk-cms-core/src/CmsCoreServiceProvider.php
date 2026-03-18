@@ -45,6 +45,9 @@ class CmsCoreServiceProvider extends ServiceProvider
             $this->commands([
                 \CreativeCatCo\GkCmsCore\Console\Commands\SeedDefaultContent::class,
                 \CreativeCatCo\GkCmsCore\Console\Commands\SafePublishTemplates::class,
+                \CreativeCatCo\GkCmsCore\Console\Commands\DatabaseHealthCommand::class,
+                \CreativeCatCo\GkCmsCore\Console\Commands\TestDatabaseHealth::class,
+                \CreativeCatCo\GkCmsCore\Console\Commands\UpdateCommand::class,
             ]);
         }
     }

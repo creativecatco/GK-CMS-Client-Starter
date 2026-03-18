@@ -19,7 +19,7 @@ class GenerateImageTool extends AbstractTool
 
     public function description(): string
     {
-        return 'Generate a custom AI image from a text prompt and save it to the media library. Supports hero banners, illustrations, icons, product shots, and more. The system automatically selects the best available image provider based on configured API keys. If no image API keys are configured, a free provider (Together AI FLUX) is used as fallback.';
+        return 'Generate a custom AI image from a text prompt and save it to the media library. Supports hero banners, illustrations, icons, product shots, and more. The system automatically selects the best available image provider based on configured API keys. If no image API keys are configured, a free provider (Pollinations) is used as fallback.';
     }
 
     public function parameters(): array
@@ -52,7 +52,7 @@ class GenerateImageTool extends AbstractTool
                 'provider' => [
                     'type' => 'string',
                     'description' => 'Which AI provider to use. "auto" picks the best available. Only specify a provider if the user explicitly requests one.',
-                    'enum' => ['auto', 'nano_banana', 'dalle', 'flux'],
+                    'enum' => ['auto', 'nano_banana', 'dalle', 'gpt_image', 'flux', 'pollinations'],
                 ],
             ],
             'required' => ['prompt', 'filename'],
@@ -88,30 +88,39 @@ class GenerateImageTool extends AbstractTool
         $provider = $this->selectProvider($requestedProvider, $configuredImageProvider, $keys, $style);
 
         if (!$provider) {
-            // No paid providers available — use free fallback
-            $provider = 'flux_free';
+            // No paid providers available — use free Pollinations fallback
+            $provider = 'pollinations_free';
         }
 
-        Log::info('GenerateImageTool: using provider', ['provider' => $provider, 'style' => $style]);
+        Log::info('GenerateImageTool: using provider', [
+            'provider' => $provider,
+            'style' => $style,
+            'has_openai_key' => !empty($keys['openai']),
+            'has_google_key' => !empty($keys['google']),
+            'has_together_key' => !empty($keys['together']),
+            'has_pollinations_key' => !empty($keys['pollinations']),
+        ]);
 
         try {
             $result = $this->generateImage($provider, $enhancedPrompt, $aspectRatio, $keys);
 
             // If the primary provider failed, try fallbacks
             if (!$result['success']) {
+                Log::warning("Image generation: {$provider} failed", ['error' => $result['error'] ?? 'Unknown']);
                 $fallbacks = $this->getFallbackProviders($provider, $keys);
                 foreach ($fallbacks as $fallback) {
-                    Log::info("Image generation: {$provider} failed, trying {$fallback}");
+                    Log::info("Image generation: trying fallback {$fallback}");
                     $result = $this->generateImage($fallback, $enhancedPrompt, $aspectRatio, $keys);
                     if ($result['success']) {
                         $provider = $fallback;
                         break;
                     }
+                    Log::warning("Image generation: fallback {$fallback} also failed", ['error' => $result['error'] ?? 'Unknown']);
                 }
             }
 
             if (!$result['success']) {
-                return $this->error('Image generation failed: ' . ($result['error'] ?? 'All providers failed'));
+                return $this->error('Image generation failed: ' . ($result['error'] ?? 'All providers failed. Please check your API keys in Settings > AI Assistant.'));
             }
 
             // Save the image to storage
@@ -125,6 +134,9 @@ class GenerateImageTool extends AbstractTool
             Storage::disk('public')->put($storagePath, $imageData);
 
             $publicUrl = '/storage/' . $storagePath;
+
+            // Determine citation/attribution
+            $citation = $this->getProviderCitation($provider);
 
             try {
                 Media::create([
@@ -146,6 +158,7 @@ class GenerateImageTool extends AbstractTool
                 'provider' => $provider,
                 'alt_text' => $altText,
                 'aspect_ratio' => $aspectRatio,
+                'citation' => $citation,
             ], "Image generated successfully using {$provider} and saved as {$fullFilename}");
 
         } catch (\Exception $e) {
@@ -153,6 +166,7 @@ class GenerateImageTool extends AbstractTool
                 'prompt' => $prompt,
                 'provider' => $provider,
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
             return $this->error('Image generation failed: ' . $e->getMessage());
         }
@@ -171,6 +185,7 @@ class GenerateImageTool extends AbstractTool
         $openaiImageKey = Setting::get('openai_image_api_key', '');
         $googleImageKey = Setting::get('google_ai_api_key', '');
         $togetherKey = Setting::get('together_api_key', '');
+        $pollinationsKey = Setting::get('pollinations_api_key', '');
 
         // If no dedicated OpenAI image key, check if the main key is OpenAI
         if (empty($openaiImageKey)) {
@@ -194,6 +209,7 @@ class GenerateImageTool extends AbstractTool
             'openai' => $openaiImageKey,
             'google' => $googleImageKey,
             'together' => $togetherKey,
+            'pollinations' => $pollinationsKey,
         ];
     }
 
@@ -207,7 +223,9 @@ class GenerateImageTool extends AbstractTool
             return match ($requested) {
                 'nano_banana' => !empty($keys['google']) ? 'nano_banana' : null,
                 'dalle' => !empty($keys['openai']) ? 'dalle' : null,
-                'flux' => !empty($keys['together']) ? 'flux' : 'flux_free',
+                'gpt_image' => !empty($keys['openai']) ? 'gpt_image' : null,
+                'flux' => !empty($keys['together']) ? 'flux' : null,
+                'pollinations' => !empty($keys['pollinations']) ? 'pollinations' : 'pollinations_free',
                 default => null,
             };
         }
@@ -217,27 +235,30 @@ class GenerateImageTool extends AbstractTool
             return match ($configured) {
                 'nano_banana' => !empty($keys['google']) ? 'nano_banana' : null,
                 'dalle' => !empty($keys['openai']) ? 'dalle' : null,
-                'flux' => !empty($keys['together']) ? 'flux' : 'flux_free',
-                'together' => !empty($keys['together']) ? 'flux' : 'flux_free',
+                'gpt_image' => !empty($keys['openai']) ? 'gpt_image' : null,
+                'flux' => !empty($keys['together']) ? 'flux' : null,
+                'together' => !empty($keys['together']) ? 'flux' : null,
+                'pollinations' => !empty($keys['pollinations']) ? 'pollinations' : 'pollinations_free',
                 default => null,
             };
         }
 
         // Auto mode: smart selection based on style and available keys
-        // For photorealistic images, prefer DALL-E (best quality)
+        // For photorealistic images, prefer DALL-E / GPT Image (best quality)
         // For illustrations/artistic, prefer Nano Banana (Gemini)
         // FLUX is a good all-rounder
         if ($style === 'photorealistic' && !empty($keys['openai'])) {
-            return 'dalle';
+            return 'gpt_image';
         }
         if (in_array($style, ['illustration', 'abstract', 'icon']) && !empty($keys['google'])) {
             return 'nano_banana';
         }
 
         // Fall through: use whatever is available
-        if (!empty($keys['openai'])) return 'dalle';
+        if (!empty($keys['openai'])) return 'gpt_image';
         if (!empty($keys['google'])) return 'nano_banana';
         if (!empty($keys['together'])) return 'flux';
+        if (!empty($keys['pollinations'])) return 'pollinations';
 
         // No paid keys — return null to trigger free fallback
         return null;
@@ -249,10 +270,12 @@ class GenerateImageTool extends AbstractTool
     protected function getFallbackProviders(string $primary, array $keys): array
     {
         $all = [];
+        if (!empty($keys['openai'])) $all[] = 'gpt_image';
         if (!empty($keys['openai'])) $all[] = 'dalle';
         if (!empty($keys['google'])) $all[] = 'nano_banana';
         if (!empty($keys['together'])) $all[] = 'flux';
-        $all[] = 'flux_free'; // Free fallback is always available
+        if (!empty($keys['pollinations'])) $all[] = 'pollinations';
+        $all[] = 'pollinations_free'; // Free fallback is always available
 
         return array_values(array_filter($all, fn($p) => $p !== $primary));
     }
@@ -265,14 +288,17 @@ class GenerateImageTool extends AbstractTool
         return match ($provider) {
             'nano_banana' => $this->generateWithNanoBanana($prompt, $aspectRatio, $keys['google']),
             'dalle' => $this->generateWithDalle($prompt, $aspectRatio, $keys['openai']),
+            'gpt_image' => $this->generateWithGptImage($prompt, $aspectRatio, $keys['openai']),
             'flux' => $this->generateWithFlux($prompt, $aspectRatio, $keys['together']),
-            'flux_free' => $this->generateWithFluxFree($prompt, $aspectRatio),
+            'pollinations' => $this->generateWithPollinations($prompt, $aspectRatio, $keys['pollinations']),
+            'pollinations_free' => $this->generateWithPollinationsFree($prompt, $aspectRatio),
             default => ['success' => false, 'error' => "Unknown provider: {$provider}"],
         };
     }
 
     /**
      * Generate image using Nano Banana (Google Gemini Image API).
+     * Uses the correct stable model name: gemini-2.5-flash-image
      */
     protected function generateWithNanoBanana(string $prompt, string $aspectRatio, string $apiKey): array
     {
@@ -280,15 +306,17 @@ class GenerateImageTool extends AbstractTool
             return ['success' => false, 'error' => 'Google AI API key not configured'];
         }
 
+        // Model names in order of preference (stable first, then preview/newer)
         $models = [
-            'gemini-2.5-flash-preview-image-generation',
-            'gemini-2.0-flash-exp',
+            'gemini-2.5-flash-image',              // Stable Nano Banana
+            'gemini-3.1-flash-image-preview',       // Nano Banana 2 (preview)
         ];
 
         foreach ($models as $model) {
             try {
                 $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
 
+                // Convert aspect ratio format for Gemini (uses "16:9" format directly)
                 $payload = [
                     'contents' => [
                         [
@@ -299,21 +327,42 @@ class GenerateImageTool extends AbstractTool
                     ],
                     'generationConfig' => [
                         'responseModalities' => ['TEXT', 'IMAGE'],
-                        'imageConfig' => [
-                            'aspectRatio' => $aspectRatio,
-                        ],
                     ],
                 ];
 
-                $response = Http::timeout(60)
+                // Only add imageConfig if aspect ratio is not default
+                if ($aspectRatio !== '1:1') {
+                    $payload['generationConfig']['imageConfig'] = [
+                        'aspectRatio' => str_replace(':', ':', $aspectRatio),
+                    ];
+                }
+
+                Log::info("Nano Banana: trying model {$model}");
+
+                $response = Http::timeout(90)
                     ->withHeaders(['Content-Type' => 'application/json'])
                     ->post($url, $payload);
 
                 if (!$response->successful()) {
+                    $body = substr($response->body(), 0, 500);
                     Log::warning("Nano Banana model {$model} failed", [
                         'status' => $response->status(),
-                        'body' => substr($response->body(), 0, 500),
+                        'body' => $body,
                     ]);
+
+                    // If it's a model not found error, try next model
+                    if ($response->status() === 404 || str_contains($body, 'not found')) {
+                        continue;
+                    }
+
+                    // If it's an auth error, no point trying other models
+                    if ($response->status() === 400 && str_contains($body, 'API_KEY_INVALID')) {
+                        return ['success' => false, 'error' => 'Google AI API key is invalid. Please check your key in Settings.'];
+                    }
+                    if ($response->status() === 403) {
+                        return ['success' => false, 'error' => 'Google AI API key does not have permission for image generation.'];
+                    }
+
                     continue;
                 }
 
@@ -321,6 +370,7 @@ class GenerateImageTool extends AbstractTool
                 $candidates = $data['candidates'] ?? [];
 
                 if (empty($candidates)) {
+                    Log::warning("Nano Banana model {$model} returned no candidates");
                     continue;
                 }
 
@@ -330,6 +380,8 @@ class GenerateImageTool extends AbstractTool
                         $imageBase64 = $part['inlineData']['data'];
                         $mimeType = $part['inlineData']['mimeType'] ?? 'image/png';
 
+                        Log::info("Nano Banana: successfully generated image with {$model}");
+
                         return [
                             'success' => true,
                             'image_data' => base64_decode($imageBase64),
@@ -338,7 +390,7 @@ class GenerateImageTool extends AbstractTool
                     }
                 }
 
-                Log::warning("Nano Banana model {$model} returned no image data");
+                Log::warning("Nano Banana model {$model} returned no image data in parts");
                 continue;
 
             } catch (\Exception $e) {
@@ -351,7 +403,7 @@ class GenerateImageTool extends AbstractTool
     }
 
     /**
-     * Generate image using OpenAI DALL-E.
+     * Generate image using OpenAI DALL-E 3.
      */
     protected function generateWithDalle(string $prompt, string $aspectRatio, string $apiKey): array
     {
@@ -374,7 +426,7 @@ class GenerateImageTool extends AbstractTool
         $size = $sizeMap[$aspectRatio] ?? '1792x1024';
 
         try {
-            $response = Http::timeout(60)
+            $response = Http::timeout(90)
                 ->withHeaders([
                     'Authorization' => 'Bearer ' . $apiKey,
                     'Content-Type' => 'application/json',
@@ -389,9 +441,16 @@ class GenerateImageTool extends AbstractTool
                 ]);
 
             if (!$response->successful()) {
+                $body = $response->body();
+                if (str_contains($body, 'invalid_api_key') || str_contains($body, 'Incorrect API key')) {
+                    return ['success' => false, 'error' => 'OpenAI API key is invalid. Please check your key in Settings.'];
+                }
+                if (str_contains($body, 'billing') || str_contains($body, 'quota')) {
+                    return ['success' => false, 'error' => 'OpenAI billing issue. Please check your OpenAI account has credits.'];
+                }
                 return [
                     'success' => false,
-                    'error' => 'DALL-E API error: ' . substr($response->body(), 0, 300),
+                    'error' => 'DALL-E API error (HTTP ' . $response->status() . '): ' . substr($body, 0, 300),
                 ];
             }
 
@@ -414,6 +473,103 @@ class GenerateImageTool extends AbstractTool
     }
 
     /**
+     * Generate image using OpenAI GPT Image 1 (newer model, successor to DALL-E).
+     */
+    protected function generateWithGptImage(string $prompt, string $aspectRatio, string $apiKey): array
+    {
+        if (empty($apiKey)) {
+            return ['success' => false, 'error' => 'OpenAI API key not configured'];
+        }
+
+        $sizeMap = [
+            '1:1' => '1024x1024',
+            '16:9' => '1536x1024',
+            '9:16' => '1024x1536',
+            '3:2' => '1536x1024',
+            '2:3' => '1024x1536',
+            '4:3' => '1536x1024',
+            '3:4' => '1024x1536',
+            '4:5' => '1024x1536',
+            '5:4' => '1536x1024',
+        ];
+
+        $size = $sizeMap[$aspectRatio] ?? '1536x1024';
+
+        try {
+            // Try gpt-image-1 first, then fall back to gpt-image-1-mini
+            $models = ['gpt-image-1', 'gpt-image-1-mini'];
+
+            foreach ($models as $model) {
+                $response = Http::timeout(90)
+                    ->withHeaders([
+                        'Authorization' => 'Bearer ' . $apiKey,
+                        'Content-Type' => 'application/json',
+                    ])
+                    ->post('https://api.openai.com/v1/images/generations', [
+                        'model' => $model,
+                        'prompt' => $prompt,
+                        'n' => 1,
+                        'size' => $size,
+                        'quality' => 'medium',
+                    ]);
+
+                if ($response->successful()) {
+                    $data = $response->json();
+
+                    // GPT Image models may return URL or b64_json
+                    $imageUrl = $data['data'][0]['url'] ?? null;
+                    $imageBase64 = $data['data'][0]['b64_json'] ?? null;
+
+                    if (!empty($imageBase64)) {
+                        return [
+                            'success' => true,
+                            'image_data' => base64_decode($imageBase64),
+                            'mime_type' => 'image/png',
+                        ];
+                    }
+
+                    if (!empty($imageUrl)) {
+                        // Download the image from the URL
+                        $imageResponse = Http::timeout(30)->get($imageUrl);
+                        if ($imageResponse->successful() && strlen($imageResponse->body()) > 1000) {
+                            return [
+                                'success' => true,
+                                'image_data' => $imageResponse->body(),
+                                'mime_type' => $imageResponse->header('Content-Type') ?? 'image/png',
+                            ];
+                        }
+                    }
+
+                    Log::warning("GPT Image model {$model} returned no usable image data");
+                    continue;
+                }
+
+                $body = $response->body();
+                // If model not found, try next
+                if ($response->status() === 404 || str_contains($body, 'model_not_found')) {
+                    Log::info("GPT Image model {$model} not available, trying next");
+                    continue;
+                }
+
+                // Auth/billing errors - don't try other models
+                if (str_contains($body, 'invalid_api_key')) {
+                    return ['success' => false, 'error' => 'OpenAI API key is invalid.'];
+                }
+                if (str_contains($body, 'billing') || str_contains($body, 'quota')) {
+                    return ['success' => false, 'error' => 'OpenAI billing issue.'];
+                }
+
+                Log::warning("GPT Image model {$model} failed", ['status' => $response->status(), 'body' => substr($body, 0, 300)]);
+            }
+
+            return ['success' => false, 'error' => 'GPT Image generation failed with all model variants'];
+
+        } catch (\Exception $e) {
+            return ['success' => false, 'error' => 'GPT Image exception: ' . $e->getMessage()];
+        }
+    }
+
+    /**
      * Generate image using Together AI FLUX (paid, with API key).
      */
     protected function generateWithFlux(string $prompt, string $aspectRatio, string $apiKey): array
@@ -425,40 +581,50 @@ class GenerateImageTool extends AbstractTool
         $dimensions = $this->getFluxDimensions($aspectRatio);
 
         try {
-            $response = Http::timeout(60)
-                ->withHeaders([
-                    'Authorization' => 'Bearer ' . $apiKey,
-                    'Content-Type' => 'application/json',
-                ])
-                ->post('https://api.together.xyz/v1/images/generations', [
-                    'model' => 'black-forest-labs/FLUX.1-schnell-Free',
-                    'prompt' => $prompt,
-                    'width' => $dimensions['width'],
-                    'height' => $dimensions['height'],
-                    'steps' => 4,
-                    'n' => 1,
-                    'response_format' => 'b64_json',
-                ]);
-
-            if (!$response->successful()) {
-                return [
-                    'success' => false,
-                    'error' => 'Together AI FLUX error: ' . substr($response->body(), 0, 300),
-                ];
-            }
-
-            $data = $response->json();
-            $imageBase64 = $data['data'][0]['b64_json'] ?? null;
-
-            if (empty($imageBase64)) {
-                return ['success' => false, 'error' => 'Together AI FLUX returned no image data'];
-            }
-
-            return [
-                'success' => true,
-                'image_data' => base64_decode($imageBase64),
-                'mime_type' => 'image/png',
+            // Try the free model first, then the paid one
+            $models = [
+                'black-forest-labs/FLUX.1-schnell-Free',
+                'black-forest-labs/FLUX.1-schnell',
             ];
+
+            foreach ($models as $model) {
+                $response = Http::timeout(90)
+                    ->withHeaders([
+                        'Authorization' => 'Bearer ' . $apiKey,
+                        'Content-Type' => 'application/json',
+                    ])
+                    ->post('https://api.together.xyz/v1/images/generations', [
+                        'model' => $model,
+                        'prompt' => $prompt,
+                        'width' => $dimensions['width'],
+                        'height' => $dimensions['height'],
+                        'steps' => 4,
+                        'n' => 1,
+                        'response_format' => 'b64_json',
+                    ]);
+
+                if ($response->successful()) {
+                    $data = $response->json();
+                    $imageBase64 = $data['data'][0]['b64_json'] ?? null;
+
+                    if (!empty($imageBase64)) {
+                        return [
+                            'success' => true,
+                            'image_data' => base64_decode($imageBase64),
+                            'mime_type' => 'image/png',
+                        ];
+                    }
+                }
+
+                $body = $response->body();
+                if (str_contains($body, 'model_not_found') || $response->status() === 404) {
+                    continue;
+                }
+
+                Log::warning("Together AI FLUX model {$model} failed", ['status' => $response->status(), 'body' => substr($body, 0, 300)]);
+            }
+
+            return ['success' => false, 'error' => 'Together AI FLUX generation failed'];
 
         } catch (\Exception $e) {
             return ['success' => false, 'error' => 'Together AI FLUX exception: ' . $e->getMessage()];
@@ -466,43 +632,139 @@ class GenerateImageTool extends AbstractTool
     }
 
     /**
-     * Generate image using Together AI FLUX free endpoint (no API key needed).
-     * This is the free fallback when no image API keys are configured.
+     * Generate image using Pollinations API (with API key).
+     * Uses the new gen.pollinations.ai endpoint.
      */
-    protected function generateWithFluxFree(string $prompt, string $aspectRatio): array
+    protected function generateWithPollinations(string $prompt, string $aspectRatio, string $apiKey): array
     {
+        if (empty($apiKey)) {
+            return ['success' => false, 'error' => 'Pollinations API key not configured'];
+        }
+
         $dimensions = $this->getFluxDimensions($aspectRatio);
 
         try {
-            // Together AI offers a free FLUX.1-schnell endpoint
-            // We use their free tier which requires a free API key signup
-            // As an alternative, try the Pollinations.ai free API
-            $encodedPrompt = urlencode($prompt);
-            $width = $dimensions['width'];
-            $height = $dimensions['height'];
-
+            // Use the OpenAI-compatible endpoint
             $response = Http::timeout(90)
-                ->get("https://image.pollinations.ai/prompt/{$encodedPrompt}?width={$width}&height={$height}&nologo=true&enhance=true");
+                ->withHeaders([
+                    'Authorization' => 'Bearer ' . $apiKey,
+                    'Content-Type' => 'application/json',
+                ])
+                ->post('https://gen.pollinations.ai/v1/images/generations', [
+                    'model' => 'flux',
+                    'prompt' => $prompt,
+                    'size' => $dimensions['width'] . 'x' . $dimensions['height'],
+                    'response_format' => 'b64_json',
+                ]);
 
             if (!$response->successful()) {
                 return [
                     'success' => false,
-                    'error' => 'Free image generation failed (HTTP ' . $response->status() . ')',
+                    'error' => 'Pollinations API error (HTTP ' . $response->status() . '): ' . substr($response->body(), 0, 300),
                 ];
+            }
+
+            $data = $response->json();
+            $imageBase64 = $data['data'][0]['b64_json'] ?? null;
+            $imageUrl = $data['data'][0]['url'] ?? null;
+
+            if (!empty($imageBase64)) {
+                return [
+                    'success' => true,
+                    'image_data' => base64_decode($imageBase64),
+                    'mime_type' => 'image/png',
+                ];
+            }
+
+            if (!empty($imageUrl)) {
+                $imageResponse = Http::timeout(30)->get($imageUrl);
+                if ($imageResponse->successful() && strlen($imageResponse->body()) > 1000) {
+                    return [
+                        'success' => true,
+                        'image_data' => $imageResponse->body(),
+                        'mime_type' => $imageResponse->header('Content-Type') ?? 'image/jpeg',
+                    ];
+                }
+            }
+
+            return ['success' => false, 'error' => 'Pollinations returned no image data'];
+
+        } catch (\Exception $e) {
+            return ['success' => false, 'error' => 'Pollinations exception: ' . $e->getMessage()];
+        }
+    }
+
+    /**
+     * Generate image using Pollinations free endpoint (no API key needed).
+     * Uses the legacy image.pollinations.ai endpoint with minimal parameters.
+     * NOTE: This endpoint has rate limits and may include a watermark.
+     */
+    protected function generateWithPollinationsFree(string $prompt, string $aspectRatio): array
+    {
+        try {
+            // The free endpoint works best with just a prompt and no extra parameters.
+            // Adding width/height/enhance causes 500 errors on the free tier.
+            $encodedPrompt = urlencode($prompt);
+
+            // Use the simple GET endpoint - no width/height/enhance params
+            // The free endpoint returns ~1024x1024 images by default
+            $url = "https://image.pollinations.ai/prompt/{$encodedPrompt}?nologo=true&seed=" . rand(1, 999999);
+
+            Log::info('Pollinations free: requesting image', ['url' => substr($url, 0, 200)]);
+
+            $response = Http::timeout(120)
+                ->withOptions(['allow_redirects' => true])
+                ->get($url);
+
+            if (!$response->successful()) {
+                $statusCode = $response->status();
+
+                // Rate limiting
+                if ($statusCode === 429) {
+                    Log::warning('Pollinations free: rate limited, waiting and retrying...');
+                    sleep(5);
+
+                    // Retry once
+                    $response = Http::timeout(120)
+                        ->withOptions(['allow_redirects' => true])
+                        ->get($url);
+
+                    if (!$response->successful()) {
+                        return [
+                            'success' => false,
+                            'error' => 'Pollinations free: rate limited (HTTP 429). Please try again in a moment.',
+                        ];
+                    }
+                } else {
+                    return [
+                        'success' => false,
+                        'error' => 'Pollinations free: HTTP ' . $statusCode . ' - ' . substr($response->body(), 0, 200),
+                    ];
+                }
             }
 
             $imageData = $response->body();
             if (strlen($imageData) < 1000) {
-                return ['success' => false, 'error' => 'Free image generation returned invalid data'];
+                return ['success' => false, 'error' => 'Pollinations free: returned invalid/empty image data'];
             }
 
             // Detect mime type from the response
-            $mimeType = $response->header('Content-Type') ?? 'image/jpeg';
-            if (str_contains($mimeType, 'png')) {
+            $contentType = $response->header('Content-Type') ?? '';
+            if (str_contains($contentType, 'png')) {
                 $mimeType = 'image/png';
-            } else {
+            } elseif (str_contains($contentType, 'jpeg') || str_contains($contentType, 'jpg')) {
                 $mimeType = 'image/jpeg';
+            } else {
+                // Check magic bytes
+                $header = substr($imageData, 0, 4);
+                if ($header === "\x89PNG") {
+                    $mimeType = 'image/png';
+                } else {
+                    $mimeType = 'image/jpeg';
+                }
             }
+
+            Log::info('Pollinations free: successfully generated image', ['size' => strlen($imageData), 'mime' => $mimeType]);
 
             return [
                 'success' => true,
@@ -511,7 +773,7 @@ class GenerateImageTool extends AbstractTool
             ];
 
         } catch (\Exception $e) {
-            return ['success' => false, 'error' => 'Free image generation exception: ' . $e->getMessage()];
+            return ['success' => false, 'error' => 'Pollinations free exception: ' . $e->getMessage()];
         }
     }
 
@@ -551,5 +813,21 @@ class GenerateImageTool extends AbstractTool
         $suffix = ' High resolution, suitable for a professional website. No watermarks, no text unless specifically requested.';
 
         return $stylePrefix . $prompt . $suffix;
+    }
+
+    /**
+     * Get attribution/citation text for the provider used.
+     */
+    protected function getProviderCitation(string $provider): string
+    {
+        return match ($provider) {
+            'nano_banana' => 'Generated with Google Gemini (Nano Banana). Royalty-free for commercial use.',
+            'dalle' => 'Generated with OpenAI DALL-E 3. Royalty-free for commercial use per OpenAI terms.',
+            'gpt_image' => 'Generated with OpenAI GPT Image. Royalty-free for commercial use per OpenAI terms.',
+            'flux' => 'Generated with FLUX via Together AI. Royalty-free for commercial use.',
+            'pollinations' => 'Generated with Pollinations AI (FLUX). Royalty-free for commercial use.',
+            'pollinations_free' => 'Generated with Pollinations AI (free tier). Image may contain watermark. Royalty-free for commercial use.',
+            default => 'AI-generated image. Royalty-free for commercial use.',
+        };
     }
 }

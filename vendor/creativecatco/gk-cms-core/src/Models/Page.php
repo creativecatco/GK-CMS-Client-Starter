@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Spatie\Sluggable\HasSlug;
 use Spatie\Sluggable\SlugOptions;
+use Symfony\Component\DomCrawler\Crawler;
 
 class Page extends Model
 {
@@ -85,6 +86,14 @@ class Page extends Model
     }
 
     /**
+     * Check if this page has block-based content (legacy).
+     */
+    public function hasBlocks(): bool
+    {
+        return !empty($this->blocks) && is_array($this->blocks);
+    }
+
+    /**
      * Get a specific field value with optional default.
      */
     public function field(string $key, $default = null)
@@ -96,24 +105,60 @@ class Page extends Model
     /**
      * Get a button field value as a structured array.
      * Returns: ['text' => '...', 'link' => '...', 'style' => '...']
+     *
+     * IMPORTANT: This now returns a ButtonResult (ArrayObject) that renders as HTML
+     * when echoed via {{ }} or {!! !!}}, preventing 500 errors from AI-generated templates.
      */
-    public function button(string $key, array $defaults = []): array
+    public function button(string $key, array $defaults = []): \ArrayObject
     {
         $value = $this->field($key);
         if (is_array($value)) {
-            return array_merge([
+            $data = array_merge([
                 'text' => 'Click Here',
                 'link' => '#',
                 'style' => 'primary',
                 'visible' => true,
             ], $defaults, $value);
+        } else {
+            $data = array_merge([
+                'text' => $value ?? 'Click Here',
+                'link' => '#',
+                'style' => 'primary',
+                'visible' => true,
+            ], $defaults);
         }
-        return array_merge([
-            'text' => $value ?? 'Click Here',
-            'link' => '#',
-            'style' => 'primary',
-            'visible' => true,
-        ], $defaults);
+
+        // Return a ButtonResult that works as both an array AND a string
+        return new class($data, $key) extends \ArrayObject implements \Stringable {
+            private string $fieldKey;
+
+            public function __construct(array $data, string $key)
+            {
+                parent::__construct($data, \ArrayObject::ARRAY_AS_PROPS);
+                $this->fieldKey = $key;
+            }
+
+            public function __toString(): string
+            {
+                $btn = $this->getArrayCopy();
+                if (!($btn['visible'] ?? true)) {
+                    return '';
+                }
+                $text = e($btn['text'] ?? 'Click Here');
+                $link = e($btn['link'] ?? '#');
+                $style = $btn['style'] ?? 'primary';
+                $classes = 'inline-block px-8 py-3 rounded-lg font-semibold text-lg transition-all duration-300 hover:opacity-90 hover:shadow-lg';
+                if ($style === 'primary') {
+                    $inlineStyle = 'background-color: var(--color-primary); color: var(--color-secondary);';
+                } elseif ($style === 'secondary') {
+                    $classes = 'inline-block px-8 py-3 rounded-lg font-semibold text-lg transition-all duration-300 hover:opacity-90 border-2';
+                    $inlineStyle = 'border-color: var(--color-primary); color: var(--color-primary);';
+                } else {
+                    $inlineStyle = '';
+                }
+                return '<a href="' . $link . '" class="' . $classes . '" style="' . $inlineStyle . '" data-field="' . e($this->fieldKey) . '" data-field-type="button">' . $text . '</a>';
+            }
+        };
     }
 
     /**
@@ -267,31 +312,18 @@ class Page extends Model
         $fields = [];
         $seen = [];
 
-        // Pattern 1: data-field attributes (preferred, explicit)
-        preg_match_all(
-            '/data-field=["\']([^"\']+)["\']/s',
-            $templateContent,
-            $dataFieldMatches
-        );
+        $crawler = new Crawler($templateContent);
 
-        foreach ($dataFieldMatches[1] as $key) {
-            if (isset($seen[$key])) continue;
+        // Pattern 1: data-field attributes (preferred, explicit)
+        $crawler->filter('[data-field]')->each(function (Crawler $node) use (&$fields, &$seen) {
+            $key = $node->attr('data-field');
+            if (empty($key) || isset($seen[$key])) return;
             $seen[$key] = true;
 
-            $type = 'text';
-            $label = self::keyToLabel($key);
-            $group = 'General';
-            $placeholder = '';
-
-            if (preg_match('/data-field=["\']' . preg_quote($key, '/') . '["\'][^>]*data-field-type=["\']([^"\']+)["\']/s', $templateContent, $m)) {
-                $type = $m[1];
-            }
-            if (preg_match('/data-field=["\']' . preg_quote($key, '/') . '["\'][^>]*data-field-label=["\']([^"\']+)["\']/s', $templateContent, $m)) {
-                $label = $m[1];
-            }
-            if (preg_match('/data-field=["\']' . preg_quote($key, '/') . '["\'][^>]*data-field-group=["\']([^"\']+)["\']/s', $templateContent, $m)) {
-                $group = $m[1];
-            }
+            $type = $node->attr('data-field-type') ?: 'text';
+            $label = $node->attr('data-field-label') ?: self::keyToLabel($key);
+            $group = $node->attr('data-field-group') ?: 'General';
+            $placeholder = $node->attr('data-field-placeholder') ?: '';
 
             $fields[] = [
                 'key' => $key,
@@ -301,29 +333,24 @@ class Page extends Model
                 'placeholder' => $placeholder,
                 'order' => count($fields),
             ];
-        }
+        });
 
-        // Pattern 2: {{ $fields['key'] }} or {!! $fields['key'] !!}
-        preg_match_all(
-            '/(?:\{\{|\{!!)\s*\$fields\[[\'"]([^\'"]+)[\'"]\]\s*(?:\?\?[^}]*)?\s*(?:\}\}|!!\})|' .
-            '\$page->field\([\'"]([^\'"]+)[\'"]/s',
-            $templateContent,
-            $varMatches
-        );
+        // Pattern 2: Blade variables (fallback)
+        // This pattern needs to be adjusted to work with the new DOM parsing approach
+        // For now, we'll keep the original regex for Blade variables as a fallback
+        // but ideally, this should also be handled by parsing the Blade syntax more robustly.
+        preg_match_all('/{{(?:\s*\$page->field\([\'"]([^\'"]+)[\'"](?:,\s*[^)]+)?\)\s*|\s*\$page->fieldsObject->([^\s]+)\s*)}}/', $templateContent, $matches, PREG_SET_ORDER);
 
-        foreach ($varMatches[1] as $i => $key) {
-            $key = $key ?: ($varMatches[2][$i] ?? '');
+        foreach ($matches as $match) {
+            $key = $match[1] ?? $match[2];
             if (empty($key) || isset($seen[$key])) continue;
             $seen[$key] = true;
-
-            $type = self::inferFieldType($key);
-            $group = self::inferFieldGroup($key);
 
             $fields[] = [
                 'key' => $key,
                 'label' => self::keyToLabel($key),
-                'type' => $type,
-                'group' => $group,
+                'type' => 'text', // Default to text for Blade variables
+                'group' => 'General',
                 'placeholder' => '',
                 'order' => count($fields),
             ];
@@ -333,146 +360,11 @@ class Page extends Model
     }
 
     /**
-     * Convert a snake_case key to a human-readable label.
+     * Convert a field key to a human-readable label.
      */
-    public static function keyToLabel(string $key): string
+    protected static function keyToLabel(string $key): string
     {
-        return ucwords(str_replace(['_', '-'], ' ', $key));
-    }
-
-    /**
-     * Infer the field type from the key name.
-     */
-    protected static function inferFieldType(string $key): string
-    {
-        $key = strtolower($key);
-
-        if (str_contains($key, 'image') || str_contains($key, 'photo') || str_contains($key, 'logo') || str_contains($key, 'avatar')) {
-            return 'image';
-        }
-        if (str_contains($key, '_bg') || str_contains($key, 'background')) {
-            return 'section_bg';
-        }
-        if (str_contains($key, 'button') && str_contains($key, 'group')) {
-            return 'button_group';
-        }
-        if (str_contains($key, 'button') || str_contains($key, '_btn') || str_contains($key, '_cta')) {
-            return 'button';
-        }
-        if (str_contains($key, 'url') || str_contains($key, 'link') || str_contains($key, 'href')) {
-            return 'url';
-        }
-        if (str_contains($key, 'color') || str_contains($key, 'colour')) {
-            return 'color';
-        }
-        if (str_contains($key, 'gallery') && str_contains($key, 'image')) {
-            return 'gallery';
-        }
-        if (str_contains($key, 'video') || str_contains($key, 'embed')) {
-            return 'video';
-        }
-        if (str_contains($key, 'icon')) {
-            return 'icon';
-        }
-        if (str_contains($key, '_items') || str_contains($key, '_list') || str_contains($key, '_repeater')) {
-            return 'repeater';
-        }
-        if (str_contains($key, 'description') || str_contains($key, 'bio') || str_contains($key, 'body') || str_contains($key, 'content') || str_contains($key, 'paragraph')) {
-            return 'textarea';
-        }
-        if (str_contains($key, 'html') || str_contains($key, 'rich')) {
-            return 'richtext';
-        }
-        if (str_contains($key, 'count') || str_contains($key, 'number') || str_contains($key, 'amount') || str_contains($key, 'price') || str_contains($key, 'quantity')) {
-            return 'number';
-        }
-        if (str_contains($key, 'enabled') || str_contains($key, 'visible') || str_contains($key, 'show') || str_contains($key, 'active')) {
-            return 'toggle';
-        }
-
-        return 'text';
-    }
-
-    /**
-     * Infer the field group from the key name.
-     */
-    protected static function inferFieldGroup(string $key): string
-    {
-        $key = strtolower($key);
-        $parts = explode('_', $key);
-        if (count($parts) >= 2) {
-            $prefix = $parts[0];
-            $commonPrefixes = ['hero', 'about', 'cta', 'footer', 'header', 'nav', 'contact', 'team', 'services', 'features', 'pricing', 'faq', 'testimonial', 'gallery', 'blog', 'banner', 'section', 'video', 'accent', 'stats'];
-            if (in_array($prefix, $commonPrefixes)) {
-                return ucfirst($prefix);
-            }
-        }
-        return 'General';
-    }
-
-    /**
-     * Check if this page uses the block builder (legacy support).
-     */
-    public function hasBlocks(): bool
-    {
-        return !empty($this->blocks) && is_array($this->blocks);
-    }
-
-    /**
-     * Get blocks of a specific type (legacy support).
-     */
-    public function getBlocksByType(string $type): array
-    {
-        if (!$this->hasBlocks()) {
-            return [];
-        }
-        return collect($this->blocks)
-            ->filter(fn ($block) => ($block['type'] ?? '') === $type)
-            ->values()
-            ->toArray();
-    }
-
-    /**
-     * Get available page templates by scanning the theme and package view directories.
-     */
-    public static function getAvailableTemplates(): array
-    {
-        $templates = ['custom' => 'Custom (AI-Generated)'];
-
-        // Internal/utility templates that should never appear in the dropdown
-        $excluded = [
-            'default', 'custom', 'custom-render',
-            // Internal component templates (header, footer, single post/portfolio/product)
-            'default-header', 'default-footer',
-            'default-post', 'default-portfolio-archive', 'default-portfolio-single',
-            'default-product-single', 'default-products-archive',
-            // Unused/demo templates
-            'example-custom', 'full-width', 'landing',
-            // Old duplicates without "default-" prefix
-            'about', 'contact',
-        ];
-
-        $themePath = resource_path('views/theme/pages');
-        if (is_dir($themePath)) {
-            foreach (glob($themePath . '/*.blade.php') as $file) {
-                $name = basename($file, '.blade.php');
-                if (!in_array($name, $excluded) && !isset($templates[$name])) {
-                    $templates[$name] = str_replace(['-', '_'], ' ', ucwords($name, '-_'));
-                }
-            }
-        }
-
-        $packagePath = dirname(__DIR__, 2) . '/resources/views/pages';
-        if (is_dir($packagePath)) {
-            foreach (glob($packagePath . '/*.blade.php') as $file) {
-                $name = basename($file, '.blade.php');
-                if (!in_array($name, $excluded) && !isset($templates[$name])) {
-                    $templates[$name] = str_replace(['-', '_'], ' ', ucwords($name, '-_'));
-                }
-            }
-        }
-
-        return $templates;
+        return ucwords(str_replace(['-', '_'], ' ', $key));
     }
 
     /**
@@ -482,8 +374,76 @@ class Page extends Model
     {
         return SlugOptions::create()
             ->generateSlugsFrom('title')
-            ->saveSlugsTo('slug')
-            ->doNotGenerateSlugsOnUpdate();
+            ->saveSlugsTo('slug');
+    }
+
+    /**
+     * Scope a query to only include published pages.
+     */
+    public function scopePublished(Builder $query): Builder
+    {
+        return $query->where('status', 'published');
+    }
+
+    /**
+     * Scope a query to only include pages with a specific page type.
+     */
+    public function scopeOfType(Builder $query, string $type): Builder
+    {
+        return $query->where('page_type', $type);
+    }
+
+    /**
+     * Get available page templates by scanning view directories.
+     * Returns an associative array of [template_key => Label] for use in Filament select fields.
+     */
+    public static function getAvailableTemplates(): array
+    {
+        $templates = [
+            'custom' => 'Custom (AI-Generated)',
+        ];
+
+        // Scan the CMS core package views for page templates
+        $paths = [
+            resource_path('views/theme/pages'),
+            resource_path('views/vendor/cms-core/pages'),
+        ];
+
+        // Also check the package's own views directory
+        $packagePath = dirname(__DIR__, 2) . '/resources/views/pages';
+        if (is_dir($packagePath)) {
+            $paths[] = $packagePath;
+        }
+
+        $seen = ['custom' => true, 'custom-render' => true]; // Skip these
+
+        foreach ($paths as $path) {
+            if (!is_dir($path)) {
+                continue;
+            }
+
+            foreach (glob($path . '/*.blade.php') as $file) {
+                $name = basename($file, '.blade.php');
+
+                // Skip already seen templates
+                if (isset($seen[$name])) {
+                    continue;
+                }
+                $seen[$name] = true;
+
+                // Convert filename to a readable label
+                $label = ucwords(str_replace(['-', '_'], ' ', $name));
+                $templates[$name] = $label;
+            }
+        }
+
+        // Sort alphabetically but keep 'custom' first
+        $custom = ['custom' => $templates['custom']];
+        unset($templates['custom']);
+        asort($templates);
+        $templates = $custom + $templates;
+
+        return $templates;
     }
 
     /**
@@ -492,99 +452,5 @@ class Page extends Model
     public function getRouteKeyName(): string
     {
         return 'slug';
-    }
-
-    /**
-     * Scope: published pages (excludes header/footer).
-     */
-    public function scopePublished(Builder $query): Builder
-    {
-        return $query->where('status', 'published')->where(function ($q) {
-            $q->whereIn('page_type', ['page', 'post'])->orWhereNull('page_type');
-        });
-    }
-
-    /**
-     * Scope: header component.
-     */
-    public function scopeHeader(Builder $query): Builder
-    {
-        return $query->where('page_type', 'header');
-    }
-
-    /**
-     * Scope: footer component.
-     */
-    public function scopeFooter(Builder $query): Builder
-    {
-        return $query->where('page_type', 'footer');
-    }
-
-    /**
-     * Get the active header page.
-     */
-    public static function getHeader(): ?self
-    {
-        return static::header()->where('status', 'published')->first();
-    }
-
-    /**
-     * Get the active footer page.
-     */
-    public static function getFooter(): ?self
-    {
-        return static::footer()->where('status', 'published')->first();
-    }
-
-    /**
-     * Scope: draft pages.
-     */
-    public function scopeDraft(Builder $query): Builder
-    {
-        return $query->where('status', 'draft');
-    }
-
-    /**
-     * Scope: ordered by sort_order.
-     */
-    public function scopeOrdered(Builder $query): Builder
-    {
-        return $query->orderBy('sort_order');
-    }
-
-    /**
-     * Get the effective SEO title.
-     */
-    public function getSeoTitleAttribute(?string $value): string
-    {
-        return $value ?: $this->title;
-    }
-
-    /**
-     * Get the featured image URL with storage path handling.
-     */
-    public function getFeaturedImageUrlAttribute(): ?string
-    {
-        if (!$this->featured_image) {
-            return null;
-        }
-
-        if (str_starts_with($this->featured_image, 'http')) {
-            return $this->featured_image;
-        }
-
-        return asset('storage/' . $this->featured_image);
-    }
-
-    public function getOgImageUrlAttribute(): ?string
-    {
-        $image = $this->og_image ?: $this->featured_image;
-        if (!$image) {
-            return null;
-        }
-        if (str_starts_with($image, 'http')) {
-            return $image;
-        }
-        return asset('storage/' . $image);
     }
 }

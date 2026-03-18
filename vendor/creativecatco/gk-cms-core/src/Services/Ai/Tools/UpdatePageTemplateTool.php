@@ -36,8 +36,16 @@ class UpdatePageTemplateTool extends AbstractTool
 
     public function execute(array $params): array
     {
-        $slug = $params['slug'];
-        $templateCode = $params['template_code'];
+        $slug = $params['slug'] ?? null;
+        $templateCode = $params['template_code'] ?? null;
+
+        if (empty($slug)) {
+            return $this->error('The \'slug\' parameter is required to update a page template.');
+        }
+
+        if (empty($templateCode)) {
+            return $this->error('The \'template_code\' parameter is required to update a page template.');
+        }
 
         $page = Page::where('slug', $slug)->first();
         if (!$page) {

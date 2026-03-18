@@ -99,6 +99,7 @@ class SettingPage extends Page
             'google_ai_api_key' => Setting::get('google_ai_api_key', ''),
             'openai_image_api_key' => Setting::get('openai_image_api_key', ''),
             'together_api_key' => Setting::get('together_api_key', ''),
+            'pollinations_api_key' => Setting::get('pollinations_api_key', ''),
 
             // GitHub
             'github_token' => Setting::get('github_token', ''),
@@ -485,8 +486,9 @@ class SettingPage extends Page
                                             ->options([
                                                 'auto' => 'Auto (smart selection based on task)',
                                                 'nano_banana' => 'Nano Banana (Google Gemini) — Illustrations & artistic styles',
-                                                'dalle' => 'OpenAI DALL-E 3 — Photorealistic images',
+                                                'dalle' => 'OpenAI DALL-E 3 / GPT Image — Photorealistic images',
                                                 'together' => 'Together AI FLUX — Fast, high quality',
+                                                'pollinations' => 'Pollinations AI — Multiple models (FLUX, etc.)',
                                                 'none' => 'Disabled — No image generation',
                                             ])
                                             ->default('auto')
@@ -520,8 +522,17 @@ class SettingPage extends Page
                                             ->helperText('Free tier available at api.together.ai — Uses FLUX.1 Schnell model for fast, high-quality image generation.')
                                             ->visible(fn (Forms\Get $get) => in_array($get('image_gen_provider'), ['auto', 'together'])),
 
+                                        Forms\Components\TextInput::make('pollinations_api_key')
+                                            ->label('Pollinations API Key')
+                                            ->password()
+                                            ->revealable()
+                                            ->maxLength(500)
+                                            ->placeholder('sk_... or pk_...')
+                                            ->helperText('Get your key at enter.pollinations.ai — Free tier with rate limits. Uses FLUX and other models. Optional: works without a key but with lower limits.')
+                                            ->visible(fn (Forms\Get $get) => in_array($get('image_gen_provider'), ['auto', 'pollinations'])),
+
                                         Forms\Components\Placeholder::make('image_gen_fallback_note')
-                                            ->content('No image API keys configured? No problem! The AI will use a free image generation service (Pollinations AI) as a fallback. For better quality, add at least one API key above.')
+                                            ->content('No image API keys configured? No problem! The AI will use a free image generation service (Pollinations AI) as a fallback. For best quality, add a Google AI or OpenAI key above.')
                                             ->visible(fn (Forms\Get $get) => $get('image_gen_provider') === 'auto'),
 
                                         Forms\Components\Placeholder::make('image_gen_disabled_note')
@@ -670,11 +681,32 @@ class SettingPage extends Page
             'google_ai_api_key' => 'ai',
             'openai_image_api_key' => 'ai',
             'together_api_key' => 'ai',
+            'pollinations_api_key' => 'ai',
             'github_token' => 'ai',
         ];
 
+        // Secret fields: skip saving if the submitted value is empty,
+        // so we don't accidentally wipe existing tokens/keys when the
+        // password field renders as blank in the form.
+        $secretFields = [
+            'ai_api_key',
+            'google_ai_api_key',
+            'openai_image_api_key',
+            'together_api_key',
+            'pollinations_api_key',
+            'github_token',
+            'smtp_password',
+        ];
+
         foreach ($settingsMap as $key => $group) {
-            Setting::set($key, $data[$key] ?? '', $group);
+            $value = $data[$key] ?? '';
+
+            // Don't overwrite existing secrets with empty values
+            if (in_array($key, $secretFields) && empty($value)) {
+                continue;
+            }
+
+            Setting::set($key, $value, $group);
         }
 
         // Sync site_name to company_name so header/footer templates can read either key

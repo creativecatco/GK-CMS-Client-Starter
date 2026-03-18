@@ -18,7 +18,13 @@ class AiOrchestrator
      * Maximum number of tool-call loops before forcing a text response.
      * Prevents infinite loops if the LLM keeps calling tools.
      */
-    protected int $maxToolLoops = 30;
+    protected int $maxToolLoops = 12;
+
+    /**
+     * Track tool calls across the entire agent loop to detect repetition.
+     * Each entry: ['name' => string, 'params_hash' => string]
+     */
+    protected array $toolCallHistory = [];
 
     public function __construct(
         LlmProviderInterface $provider,
@@ -78,6 +84,9 @@ class AiOrchestrator
     public function handleMessage(AiConversation $conversation, string $userMessage, callable $onEvent): void
     {
         try {
+            // Reset tool call history for this new user message
+            $this->toolCallHistory = [];
+
             // 1. Add user message to conversation
             $conversation->addMessage('user', $userMessage);
             $conversation->generateTitle();
@@ -170,8 +179,42 @@ class AiOrchestrator
             $onEvent('text', $fullContent);
         }
 
+        // ── Loop prevention: detect if the LLM is restarting a completed task ──
+        // If the LLM generated substantial text AND tool calls, check if the text
+        // contains completion language followed by a new task start. This indicates
+        // the LLM is "role-playing" both sides of the conversation.
+        if (!empty($toolCallsReceived) && !empty($fullContent)) {
+            if ($this->detectCompletionLoop($fullContent, $loopCount)) {
+                Log::warning('AI loop prevention: detected completion-then-restart pattern', [
+                    'loop_count' => $loopCount,
+                    'content_preview' => substr($fullContent, 0, 300),
+                    'tool_calls' => array_map(fn($tc) => $tc['function']['name'] ?? 'unknown', $toolCallsReceived),
+                ]);
+
+                // Save the text portion only, discard the tool calls
+                $conversation->addMessage('assistant', $fullContent);
+                $onEvent('done', null);
+                return;
+            }
+        }
+
         // If the LLM returned tool calls, execute them and loop
         if (!empty($toolCallsReceived)) {
+            // ── Loop prevention: detect duplicate tool calls ──
+            $toolCallsReceived = $this->filterDuplicateToolCalls($toolCallsReceived, $loopCount);
+
+            if (empty($toolCallsReceived)) {
+                // All tool calls were duplicates — treat as final response
+                Log::warning('AI loop prevention: all tool calls were duplicates, stopping', [
+                    'loop_count' => $loopCount,
+                ]);
+                if (!empty($fullContent)) {
+                    $conversation->addMessage('assistant', $fullContent);
+                }
+                $onEvent('done', null);
+                return;
+            }
+
             // Save the assistant message with tool calls
             $conversation->addMessage('assistant', $fullContent, $toolCallsReceived);
 
@@ -292,6 +335,133 @@ class AiOrchestrator
             }
             $onEvent('done', null);
         }
+    }
+
+    /**
+     * Detect if the LLM's text response contains a completion followed by
+     * starting a new task (the "completion loop" pattern).
+     *
+     * Examples of this pattern:
+     * - "...The changes are now live.Of course. Let me generate a better image..."
+     * - "...Is there anything else?Of course. First, I need to..."
+     */
+    protected function detectCompletionLoop(string $content, int $loopCount): bool
+    {
+        // Only check after at least 2 loops (the LLM has already done some work)
+        if ($loopCount < 2) {
+            return false;
+        }
+
+        $content = strtolower($content);
+
+        // Completion phrases that indicate the task is done
+        $completionPhrases = [
+            'the changes are now live',
+            'has been updated',
+            'has been successfully updated',
+            'is now live',
+            'changes are live',
+            'anything else i can help',
+            'anything else you',
+            'let me know if you',
+            'is there anything else',
+            'the task is complete',
+            'all done',
+            'everything is set',
+        ];
+
+        // Restart phrases that indicate a new task is beginning
+        $restartPhrases = [
+            'of course.',
+            'of course!',
+            'sure!',
+            'sure,',
+            'absolutely.',
+            'absolutely!',
+            'let me start',
+            'i\'ll start by',
+            'first, i need to',
+            'let me check',
+            'let me examine',
+            'i\'ll begin by',
+            'to generate a',
+            'to create a',
+        ];
+
+        $hasCompletion = false;
+        $completionPos = 0;
+        foreach ($completionPhrases as $phrase) {
+            $pos = strpos($content, $phrase);
+            if ($pos !== false) {
+                $hasCompletion = true;
+                $completionPos = max($completionPos, $pos + strlen($phrase));
+            }
+        }
+
+        if (!$hasCompletion) {
+            return false;
+        }
+
+        // Check if any restart phrase appears AFTER the completion
+        $afterCompletion = substr($content, $completionPos);
+        foreach ($restartPhrases as $phrase) {
+            if (str_contains($afterCompletion, $phrase)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Filter out duplicate tool calls that have already been executed
+     * in this agent loop session with the same or very similar parameters.
+     */
+    protected function filterDuplicateToolCalls(array $toolCalls, int $loopCount): array
+    {
+        $filtered = [];
+
+        foreach ($toolCalls as $tc) {
+            $name = $tc['function']['name'] ?? 'unknown';
+            $args = $tc['function']['arguments'] ?? '{}';
+            $paramsHash = md5($name . ':' . $args);
+
+            // Check for exact duplicates
+            $isDuplicate = false;
+            foreach ($this->toolCallHistory as $prev) {
+                if ($prev['name'] === $name && $prev['params_hash'] === $paramsHash) {
+                    $isDuplicate = true;
+                    Log::warning('AI loop prevention: skipping duplicate tool call', [
+                        'tool' => $name,
+                        'loop_count' => $loopCount,
+                    ]);
+                    break;
+                }
+            }
+
+            // For generate_image specifically, also check for similar calls
+            // (same tool called multiple times with different prompts for the same purpose)
+            if (!$isDuplicate && $name === 'generate_image' && $loopCount >= 3) {
+                $imageCallCount = count(array_filter($this->toolCallHistory, fn($h) => $h['name'] === 'generate_image'));
+                if ($imageCallCount >= 2) {
+                    $isDuplicate = true;
+                    Log::warning('AI loop prevention: too many generate_image calls, stopping', [
+                        'previous_count' => $imageCallCount,
+                        'loop_count' => $loopCount,
+                    ]);
+                }
+            }
+
+            if (!$isDuplicate) {
+                $this->toolCallHistory[] = [
+                    'name' => $name,
+                    'params_hash' => $paramsHash,
+                ];
+                $filtered[] = $tc;
+            }
+        }
+
+        return $filtered;
     }
 
     /**

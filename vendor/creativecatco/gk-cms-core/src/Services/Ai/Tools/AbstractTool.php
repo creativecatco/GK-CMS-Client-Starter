@@ -58,6 +58,7 @@ abstract class AbstractTool implements ToolInterface
             'success' => false,
             'data' => $data,
             'message' => $message,
+            'error' => $message,
         ];
     }
 }
