@@ -109,6 +109,7 @@ class ToolRegistry
         // Read-only tools (no side effects)
         $registry->register(new GetSiteOverviewTool());
         $registry->register(new GetPageInfoTool());
+        $registry->register(new GetFieldValueTool());
         $registry->register(new ListPagesTool());
         $registry->register(new GetThemeTool());
         $registry->register(new GetSettingsTool());

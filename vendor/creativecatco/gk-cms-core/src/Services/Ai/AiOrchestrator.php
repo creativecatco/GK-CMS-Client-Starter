@@ -525,82 +525,33 @@ class AiOrchestrator
     {
         $data = $result['data'] ?? [];
 
-        // For get_page_info: preserve field_map (has type info), trim template
+        // For get_page_info: results are now compact by design (field_summary has
+        // only types + short previews, NOT full values). Just trim template if needed.
         if ($toolName === 'get_page_info' && is_array($data)) {
-            // Truncate the template which is usually the largest part
-            if (isset($data['template']) && is_string($data['template']) && strlen($data['template']) > 3000) {
-                $data['template'] = mb_substr($data['template'], 0, 3000) . '\n... [template truncated — for small fixes use patch_page_template with find/replace instead of replacing the full template]';
-            }
+            // Template is already pre-truncated to 4000 chars by the tool,
+            // but further trim if the overall result is still too large
             if (isset($data['custom_template']) && is_string($data['custom_template']) && strlen($data['custom_template']) > 3000) {
-                $data['custom_template'] = mb_substr($data['custom_template'], 0, 3000) . '\n... [template truncated — for small fixes use patch_page_template with find/replace instead of replacing the full template]';
-            }
-            // Remove field_definitions if field_map is present (field_map already includes type info)
-            if (isset($data['field_map']) && isset($data['field_definitions'])) {
-                unset($data['field_definitions']);
-            }
-            // Remove raw fields if field_map is present (field_map already includes values)
-            if (isset($data['field_map']) && isset($data['fields'])) {
-                unset($data['fields']);
+                $data['custom_template'] = mb_substr($data['custom_template'], 0, 3000) . '\n... [template truncated — use patch_page_template for small fixes]';
             }
 
             $truncated = $result;
             $truncated['data'] = $data;
-            $truncated['_note'] = 'Template truncated to save tokens. field_map contains all field types and values. For small template fixes, use patch_page_template (find/replace) instead of update_page_template (full replacement).';
             $encoded = json_encode($truncated);
 
             if (strlen($encoded) <= $maxSize) {
                 return $encoded;
             }
 
-            // Still too large — progressively truncate field_map values
-            // Step 1: Truncate long string values and summarize arrays in field_map
-            if (isset($data['field_map']) && is_array($data['field_map'])) {
-                foreach ($data['field_map'] as $key => &$entry) {
-                    if (!isset($entry['value'])) continue;
-                    $val = $entry['value'];
-                    if (is_array($val)) {
-                        // Summarize arrays (repeaters, button groups)
-                        if (isset($val['image'])) {
-                            // section_bg — keep it (important for image tasks)
-                            continue;
-                        }
-                        $entry['value'] = '[array with ' . count($val) . ' items]';
-                    } elseif (is_string($val) && strlen($val) > 150) {
-                        $entry['value'] = mb_substr($val, 0, 150) . '...';
-                    }
-                }
-                unset($entry);
-            }
-
-            // Step 2: Further truncate template if needed
-            if (isset($data['custom_template']) && is_string($data['custom_template']) && strlen($data['custom_template']) > 1500) {
-                $data['custom_template'] = mb_substr($data['custom_template'], 0, 1500) . '\n... [template further truncated]';
-            }
-
-            // Step 3: Remove non-essential metadata
-            unset($data['custom_css'], $data['featured_image'], $data['sort_order']);
-
+            // Still too large (very large template) — remove template entirely
+            unset($data['custom_template'], $data['custom_css']);
             $truncated['data'] = $data;
-            $encoded = json_encode($truncated);
+            $truncated['_note'] = 'Template omitted to fit token limit. Use get_page_info again for template, or patch_page_template for edits.';
+            return json_encode($truncated);
+        }
 
-            if (strlen($encoded) <= $maxSize) {
-                return $encoded;
-            }
-
-            // Step 4: Last resort — keep only field_map with types and truncated values
-            $minimalData = [
-                'id' => $data['id'] ?? null,
-                'title' => $data['title'] ?? null,
-                'slug' => $data['slug'] ?? null,
-                'page_type' => $data['page_type'] ?? 'page',
-                'field_map' => $data['field_map'] ?? [],
-            ];
-            return json_encode([
-                'success' => $result['success'] ?? true,
-                'message' => $result['message'] ?? 'Page retrieved.',
-                'data' => $minimalData,
-                '_note' => 'Result heavily truncated to fit token limit. Template omitted — use get_page_info again or patch_page_template for template changes.',
-            ]);
+        // For get_field_value: always return full result (it's targeted and small)
+        if ($toolName === 'get_field_value') {
+            return json_encode($result);
         }
 
         // For render_page: preserve sections and issues, trim raw template

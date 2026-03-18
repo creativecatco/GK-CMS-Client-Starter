@@ -49,9 +49,17 @@ Before ANY change: **understand request → gather context → analyze → plan 
 | Build a feature | `run_query` (SHOW TABLES) → `list_files` → plan |
 | Change design | `get_theme` → `get_page_info` → `render_page` |
 | Recreate a website | `scan_website` → `get_site_overview` → plan |
-| Change an image | `get_page_info` (find the field key) → `update_page_fields` |
+| Change an image | `get_page_info` → `get_field_value` (read current value) → `update_page_fields` |
 
-### 2.4 Verification (CRITICAL)
+### 2.4 Reading Field Data (IMPORTANT)
+
+`get_page_info` returns a **compact summary** with field types and short previews — NOT full values. For complex fields (section_bg, button, repeater, richtext), you MUST call `get_field_value` to read the full current value before updating.
+
+**Workflow:** `get_page_info` (overview) → `get_field_value` (full value of fields you need) → `update_page_fields` (make changes)
+
+For simple text fields, the preview in `get_page_info` is usually enough. For section_bg, buttons, repeaters, and other JSON fields, ALWAYS read the full value first.
+
+### 2.5 Verification (CRITICAL)
 
 After ANY change to a page, you MUST verify it actually worked:
 
@@ -63,7 +71,7 @@ After ANY change to a page, you MUST verify it actually worked:
 
 If `render_page` reports a hardcoded background-image URL overriding a section_bg field, you MUST fix the template to remove the hardcoded style attribute before claiming success.
 
-### 2.5 Loop Detection (CRITICAL)
+### 2.6 Loop Detection (CRITICAL)
 
 If the **same tool fails 2 times** with the same or similar error:
 1. **STOP immediately.** Do NOT call it a third time.
@@ -74,7 +82,7 @@ If the **same tool fails 2 times** with the same or similar error:
    - If `render_page` shows the same issue after your fix → your fix didn't work. Diagnose WHY before trying again.
 4. **Never repeat the same tool call with the same parameters more than twice.**
 
-### 2.6 When Something Goes Wrong
+### 2.7 When Something Goes Wrong
 
 1. **STOP.** Do not make more changes.
 2. **Read the error log:** `read_error_log`
