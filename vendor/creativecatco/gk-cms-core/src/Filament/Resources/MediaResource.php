@@ -107,7 +107,44 @@ class MediaResource extends Resource
                 // ─── File URL (edit only) ───
                 Forms\Components\Section::make('File URL')
                     ->schema([
-                        Forms\Components\View::make('cms-core::filament.components.media-url-copy'),
+                        Forms\Components\Placeholder::make('public_url')
+                            ->label('Public URL')
+                            ->content(fn (?Media $record): string => $record ? asset('storage/' . $record->path) : '')
+                            ->columnSpanFull(),
+
+                        Forms\Components\Placeholder::make('storage_path')
+                            ->label('Storage Path (for use in page fields)')
+                            ->content(fn (?Media $record): string => $record ? $record->path : '')
+                            ->columnSpanFull(),
+
+                        Forms\Components\Placeholder::make('copy_buttons')
+                            ->label('')
+                            ->content(function (?Media $record): \Illuminate\Support\HtmlString {
+                                if (!$record) {
+                                    return new \Illuminate\Support\HtmlString('');
+                                }
+                                $publicUrl = asset('storage/' . $record->path);
+                                $storagePath = $record->path;
+                                return new \Illuminate\Support\HtmlString('
+                                    <div class="flex gap-2" x-data="{ copiedUrl: false, copiedPath: false }">
+                                        <button type="button"
+                                            @click="navigator.clipboard.writeText(\'' . e($publicUrl) . '\'); copiedUrl = true; setTimeout(() => copiedUrl = false, 2000)"
+                                            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition"
+                                            :class="copiedUrl ? \'bg-green-600 text-white\' : \'bg-gray-100 dark:bg-white/10 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-white/20\'">
+                                            <span x-show="!copiedUrl">Copy Public URL</span>
+                                            <span x-show="copiedUrl">Copied!</span>
+                                        </button>
+                                        <button type="button"
+                                            @click="navigator.clipboard.writeText(\'' . e($storagePath) . '\'); copiedPath = true; setTimeout(() => copiedPath = false, 2000)"
+                                            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition"
+                                            :class="copiedPath ? \'bg-green-600 text-white\' : \'bg-gray-100 dark:bg-white/10 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-white/20\'">
+                                            <span x-show="!copiedPath">Copy Storage Path</span>
+                                            <span x-show="copiedPath">Copied!</span>
+                                        </button>
+                                    </div>
+                                ');
+                            })
+                            ->columnSpanFull(),
                     ])
                     ->visible(fn (?Media $record) => $record !== null),
             ]);
