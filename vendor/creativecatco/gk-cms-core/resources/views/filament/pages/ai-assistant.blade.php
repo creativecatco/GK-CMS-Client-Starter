@@ -461,7 +461,7 @@
                                         <div class="space-y-1.5">
                                             <template x-for="(step, stepIdx) in (activePlan?.steps || [])" :key="stepIdx">
                                                 <div class="flex items-center gap-2 text-xs transition-all duration-300"
-                                                     :class="{'opacity-50': step.status === 'done'}">
+                                                     :class="{'opacity-60': step.status === 'done'}">
                                                     {{-- Status icon --}}
                                                     <template x-if="step.status === 'done'">
                                                         <svg class="w-3.5 h-3.5 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
@@ -474,12 +474,21 @@
                                                     </template>
                                                     {{-- Step text --}}
                                                     <span :class="{
-                                                        'text-gray-400 dark:text-gray-500 line-through': step.status === 'done',
-                                                        'text-indigo-700 dark:text-indigo-300 font-medium': step.status === 'running',
-                                                        'text-gray-600 dark:text-gray-400': step.status === 'pending',
+                                                        'text-green-700 dark:text-green-400 line-through': step.status === 'done',
+                                                        'text-indigo-700 dark:text-indigo-200 font-medium': step.status === 'running',
+                                                        'text-gray-700 dark:text-gray-300': step.status === 'pending',
                                                     }" x-text="step.text"></span>
                                                 </div>
                                             </template>
+                                        </div>
+                                        {{-- Approve Plan button --}}
+                                        <div x-show="activePlan && !activePlan.approved && !isStreaming" class="mt-3 pt-2 border-t border-indigo-200/50 dark:border-indigo-700/50">
+                                            <button @click="sendMessage('Approved. Continue with the plan.');
+                                                           activePlan.approved = true;"
+                                                    class="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold text-white bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 rounded-lg transition-all duration-200 shadow-sm hover:shadow">
+                                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                                                Approve Plan
+                                            </button>
                                         </div>
                                     </div>
                                 </div>
