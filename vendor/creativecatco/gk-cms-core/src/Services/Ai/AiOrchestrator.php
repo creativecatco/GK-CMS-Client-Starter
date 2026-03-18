@@ -303,15 +303,12 @@ class AiOrchestrator
                 ]);
 
                 // Add tool result to messages for the next LLM call
-                // Truncate large results to reduce token usage
+                // Smart truncation: preserve critical data, trim verbose parts
                 $llmResultContent = $toolResultContent;
-                if (strlen($llmResultContent) > 3000) {
-                    $llmResultContent = json_encode([
-                        '_truncated' => true,
-                        'success' => $result['success'] ?? true,
-                        '_summary' => 'Result was ' . strlen($toolResultContent) . ' chars. Key: ' . implode(', ', array_keys($result)),
-                        'message' => $result['message'] ?? ($result['success'] ? 'Tool executed successfully.' : 'Tool failed.'),
-                    ]);
+                $maxResultSize = 8000; // Allow larger results for data-rich tools
+
+                if (strlen($llmResultContent) > $maxResultSize) {
+                    $llmResultContent = $this->smartTruncateToolResult($toolName, $result, $maxResultSize);
                 }
                 $messages[] = [
                     'role' => 'tool',
@@ -518,6 +515,104 @@ class AiOrchestrator
     public function getToolRegistry(): ToolRegistry
     {
         return $this->toolRegistry;
+    }
+
+    /**
+     * Smart truncation of tool results.
+     * Preserves critical data (field_map, message, usage_hint) while trimming verbose parts.
+     */
+    protected function smartTruncateToolResult(string $toolName, array $result, int $maxSize): string
+    {
+        $data = $result['data'] ?? [];
+
+        // For get_page_info: preserve field_map (has type info), trim template
+        if ($toolName === 'get_page_info' && is_array($data)) {
+            // Truncate the template which is usually the largest part
+            if (isset($data['template']) && is_string($data['template']) && strlen($data['template']) > 1000) {
+                $data['template'] = mb_substr($data['template'], 0, 1000) . '\n... [template truncated — use get_page_info to see full template]';
+            }
+            if (isset($data['custom_template']) && is_string($data['custom_template']) && strlen($data['custom_template']) > 1000) {
+                $data['custom_template'] = mb_substr($data['custom_template'], 0, 1000) . '\n... [truncated]';
+            }
+            // Remove field_definitions if field_map is present (field_map already includes type info)
+            if (isset($data['field_map']) && isset($data['field_definitions'])) {
+                unset($data['field_definitions']);
+            }
+            // Remove raw fields if field_map is present (field_map already includes values)
+            if (isset($data['field_map']) && isset($data['fields'])) {
+                unset($data['fields']);
+            }
+
+            $truncated = $result;
+            $truncated['data'] = $data;
+            $truncated['_note'] = 'Template truncated to save tokens. field_map contains all field types and values.';
+            $encoded = json_encode($truncated);
+
+            if (strlen($encoded) <= $maxSize) {
+                return $encoded;
+            }
+        }
+
+        // For render_page: preserve sections and issues, trim raw template
+        if ($toolName === 'render_page' && is_array($data)) {
+            if (isset($data['raw_template_preview'])) {
+                $data['raw_template_preview'] = '[template omitted — use get_page_info to see full template]';
+            }
+            if (isset($data['field_data']) && is_array($data['field_data'])) {
+                // Summarize field data instead of including full values
+                $summary = [];
+                foreach ($data['field_data'] as $key => $val) {
+                    if (is_array($val)) {
+                        $summary[$key] = '[' . count($val) . ' items]';
+                    } elseif (is_string($val) && strlen($val) > 100) {
+                        $summary[$key] = mb_substr($val, 0, 100) . '...';
+                    } else {
+                        $summary[$key] = $val;
+                    }
+                }
+                $data['field_data'] = $summary;
+            }
+
+            $truncated = $result;
+            $truncated['data'] = $data;
+            $encoded = json_encode($truncated);
+
+            if (strlen($encoded) <= $maxSize) {
+                return $encoded;
+            }
+        }
+
+        // For scan_website: trim text_content
+        if ($toolName === 'scan_website' && is_array($data)) {
+            if (isset($data['text_content']) && strlen($data['text_content']) > 2000) {
+                $data['text_content'] = mb_substr($data['text_content'], 0, 2000) . '\n[truncated]';
+            }
+            if (isset($data['subpages'])) {
+                unset($data['subpages']);
+                $data['_note'] = 'Subpages omitted to save tokens.';
+            }
+
+            $truncated = $result;
+            $truncated['data'] = $data;
+            $encoded = json_encode($truncated);
+
+            if (strlen($encoded) <= $maxSize) {
+                return $encoded;
+            }
+        }
+
+        // For generate_image: always preserve full result (it's small and has usage_hint)
+        if ($toolName === 'generate_image') {
+            return json_encode($result);
+        }
+
+        // Generic fallback: preserve message and key metadata
+        return json_encode([
+            '_truncated' => true,
+            'success' => $result['success'] ?? true,
+            'message' => $result['message'] ?? ($result['success'] ? 'Tool executed successfully.' : 'Tool failed.'),
+            '_summary' => 'Result was ' . strlen(json_encode($result)) . ' chars. Keys: ' . implode(', ', array_keys($data)),
+        ]);
     }
 
     /**

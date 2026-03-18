@@ -361,9 +361,10 @@ class RenderPageTool extends AbstractTool
         // Find image-related fields
         foreach ($fields as $key => $value) {
             if (is_string($value) && preg_match('/\.(jpg|jpeg|png|gif|webp|svg)$/i', $value)) {
-                // It's an image path — check if it's a valid URL or path
-                if (!str_starts_with($value, 'http') && !str_starts_with($value, '/')) {
-                    $issues[] = "Image field '{$key}' has a relative path '{$value}' — may not display correctly.";
+                // It's an image path — relative paths like "media/ai-generated/hero.png" are correct
+                // (they're relative to storage/ and the template wraps them with asset('storage/...'))
+                if (empty($value)) {
+                    $issues[] = "Image field '{$key}' is empty — will show as broken image.";
                 }
             }
 

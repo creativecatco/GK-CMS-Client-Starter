@@ -151,15 +151,22 @@ class GenerateImageTool extends AbstractTool
                 Log::warning('Failed to save generated image to Media table', ['error' => $e->getMessage()]);
             }
 
+            $usageHint = "To use this image in a page field:\n";
+            $usageHint .= "- For an 'image' type field: set the value to \"{$storagePath}\"\n";
+            $usageHint .= "- For a 'section_bg' type field: set the 'image' key to \"{$storagePath}\" inside the section_bg JSON object (preserve existing color/mode/overlay values)\n";
+            $usageHint .= "- IMPORTANT: Always call get_page_info first to check the field type before updating.";
+
             return $this->success([
                 'url' => $publicUrl,
                 'filename' => $fullFilename,
                 'path' => $storagePath,
+                'storage_relative_path' => $storagePath,
                 'provider' => $provider,
                 'alt_text' => $altText,
                 'aspect_ratio' => $aspectRatio,
                 'citation' => $citation,
-            ], "Image generated successfully using {$provider} and saved as {$fullFilename}");
+                'usage_hint' => $usageHint,
+            ], "Image generated successfully using {$provider} and saved as {$fullFilename}.\n{$usageHint}");
 
         } catch (\Exception $e) {
             Log::error('GenerateImageTool error', [

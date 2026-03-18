@@ -139,12 +139,25 @@ Priority order:
 - For icons/logos: use `style: "icon"` with `aspect_ratio: "1:1"`
 - Always provide descriptive `alt_text` for SEO and accessibility
 
-**To place a generated image on a page, use `update_page_fields` with the image filename.** Do NOT rewrite the template.
+**Complete image generation and placement workflow:**
+1. `get_page_info` — Find the field key and its TYPE (check `field_map` in the response)
+2. `generate_image` — Generate the image. Note the `path` in the response (e.g., `"media/ai-generated/hero-banner.png"`)
+3. `update_page_fields` — Set the field using the CORRECT format for its type:
+   - If field type is `image`: `{"field_key": "media/ai-generated/hero-banner.png"}`
+   - If field type is `section_bg`: `{"field_key": {"image": "media/ai-generated/hero-banner.png", "mode": "cover", ...}}` (preserve existing values, only change `image`)
+4. `render_page` — Verify the image appears correctly
+
+**Do NOT rewrite the template just to change an image.** Always use `update_page_fields`.
 
 ### 4.4 Conversation Memory
 Use `save_preference` for strong user preferences (brand voice, colors, style). Use `get_preferences` at conversation start if needed. Categories: brand, design, content, technical, workflow.
 
-### 4.5 Plugins
+### 4.5 Scanning the Website
+The site URL is provided in the "Current Site State" section above. When you need to analyze the live site:
+1. Use `scan_website` with the site URL from the dynamic context (do NOT ask the user for the URL)
+2. You can also use `render_page` with a page slug to see how a specific page renders
+
+### 4.6 Plugins
 Use `create_plugin` to scaffold in `app/Plugins/`. Then `write_file` for logic, `run_artisan` for migrations. Keeps custom code safe from CMS updates.
 
 ---
@@ -191,7 +204,18 @@ Always provide defaults with `??`.
 
 **richtext** — HTML content: `<div data-field="content" data-field-type="richtext">{!! $fields['content'] ?? '<p>Default</p>' !!}</div>`
 
-**image** — `<img src="{{ $fields['hero_image'] ?? '' }}" data-field="hero_image" data-field-type="image">`
+**image** — Image field. Value is a string path relative to `storage/` (e.g., `"uploads/photo.jpg"` or `"media/ai-generated/hero.png"`).
+
+In templates:
+```blade
+<img src="{{ asset('storage/' . ($fields['hero_image'] ?? '')) }}" data-field="hero_image" data-field-type="image" alt="{{ $fields['hero_image_alt'] ?? '' }}">
+```
+
+**To update via `update_page_fields`:** Pass the storage-relative path as a simple string:
+```json
+{"hero_image": "media/ai-generated/hero.png"}
+```
+Do NOT include `/storage/` prefix or full URLs — the template adds the `asset('storage/...')` wrapper automatically.
 
 **button** — Renders a clickable button. Use `$page->renderButton('cta', ['text'=>'Click Here','link'=>'/contact','style'=>'primary'])` to output HTML:
 ```blade
@@ -215,7 +239,48 @@ Available icons: monitor, smartphone, search, dollar-sign, trending-up, headphon
 
 **gallery** — `<div data-field="images" data-field-type="gallery">` with image grid. Parse JSON if string.
 
-**section_bg** — `<section data-field="hero_bg" data-field-type="section_bg">`
+**section_bg** — Section background with color, image, and overlay support.
+
+In templates:
+```blade
+<section data-field="hero_bg" data-field-type="section_bg">
+```
+The layout automatically applies background styles from the field data. You do NOT need to add inline styles — the layout handles it.
+
+**DATA FORMAT (CRITICAL — this is a JSON object, NOT a simple string):**
+```json
+{
+  "color": "#1a1a2e",
+  "colorType": "solid",
+  "gradient": null,
+  "image": "media/ai-generated/hero-banner.png",
+  "mode": "cover",
+  "overlay": {
+    "type": "none"
+  }
+}
+```
+
+Key properties:
+- `image`: Path relative to `storage/` (e.g., `"media/ai-generated/hero.png"`). NOT a full URL.
+- `mode`: `"cover"` | `"contain"` | `"repeat"` | `"fixed"` (parallax)
+- `color`: Hex color or null
+- `colorType`: `"solid"` | `"gradient"`
+- `overlay.type`: `"none"` | `"solid"` | `"gradient"`
+- `overlay.solid`: CSS color like `"rgba(0,0,0,0.5)"` (only when overlay.type is "solid")
+
+**To update a section_bg image via `update_page_fields`:**
+1. First call `get_page_info` to get the current section_bg value
+2. Copy the existing JSON object
+3. Change ONLY the `"image"` key to the new path
+4. Pass the complete JSON object to `update_page_fields`
+
+Example: If `generate_image` returns path `"media/ai-generated/hero-banner.png"`, update like this:
+```json
+{"hero_bg": {"image": "media/ai-generated/hero-banner.png", "mode": "cover", "color": null, "colorType": "solid", "gradient": null, "overlay": {"type": "none"}}}
+```
+
+**Auto-correction:** If you accidentally pass a plain string instead of a JSON object, the system will auto-wrap it, but you should always use the correct format.
 
 **repeater** — List of items with sub-fields:
 ```blade

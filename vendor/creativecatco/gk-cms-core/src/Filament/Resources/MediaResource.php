@@ -29,24 +29,62 @@ class MediaResource extends Resource
     {
         return $form
             ->schema([
-                Forms\Components\Section::make('Media Details')
+                // ─── Image Preview (edit only) ───
+                Forms\Components\Section::make('Preview')
                     ->schema([
-                        Forms\Components\FileUpload::make('path')
+                        Forms\Components\Placeholder::make('image_preview')
+                            ->label('')
+                            ->content(function (?Media $record): \Illuminate\Support\HtmlString {
+                                if (!$record || !$record->is_image) {
+                                    return new \Illuminate\Support\HtmlString('<p class="text-gray-500">No preview available</p>');
+                                }
+                                $url = asset('storage/' . $record->path);
+                                return new \Illuminate\Support\HtmlString(
+                                    '<img src="' . e($url) . '" alt="' . e($record->alt_text ?? $record->filename) . '" class="max-h-64 rounded-lg shadow-sm" />'
+                                );
+                            })
+                            ->columnSpanFull(),
+                    ])
+                    ->visible(fn (?Media $record) => $record !== null && $record->is_image)
+                    ->collapsible(),
+
+                // ─── Upload (create only) ───
+                Forms\Components\Section::make('Upload File')
+                    ->schema([
+                        Forms\Components\FileUpload::make('upload_file')
                             ->label('File')
                             ->required()
-                            ->directory(config('cms.media_upload_path', 'cms/media'))
-                            ->acceptedFileTypes(config('cms.allowed_file_types'))
+                            ->disk('public')
+                            ->directory(config('cms.media_upload_path', 'media/uploads'))
+                            ->acceptedFileTypes([
+                                'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
+                                'application/pdf', 'text/plain',
+                                'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                            ])
                             ->maxSize(config('cms.max_upload_size', 10240))
                             ->imagePreviewHeight('250')
                             ->columnSpanFull()
                             ->afterStateUpdated(function ($state, Forms\Set $set) {
                                 if ($state) {
-                                    $set('filename', $state->getClientOriginalName() ?? '');
-                                    $set('mime_type', $state->getMimeType() ?? '');
-                                    $set('size', $state->getSize() ?? 0);
+                                    // $state is a Livewire TemporaryUploadedFile
+                                    if (method_exists($state, 'getClientOriginalName')) {
+                                        $set('filename', $state->getClientOriginalName());
+                                    }
+                                    if (method_exists($state, 'getMimeType')) {
+                                        $set('mime_type', $state->getMimeType());
+                                    }
+                                    if (method_exists($state, 'getSize')) {
+                                        $set('size', $state->getSize());
+                                    }
                                 }
-                            }),
+                            })
+                            ->reactive(),
+                    ])
+                    ->visible(fn (?Media $record) => $record === null), // Only show on create
 
+                // ─── Media Details ───
+                Forms\Components\Section::make('Media Details')
+                    ->schema([
                         Forms\Components\TextInput::make('filename')
                             ->required()
                             ->maxLength(255),
@@ -62,21 +100,16 @@ class MediaResource extends Resource
 
                         Forms\Components\Hidden::make('mime_type'),
                         Forms\Components\Hidden::make('size'),
+                        Forms\Components\Hidden::make('path'),
                     ])
                     ->columns(2),
 
-                // ─── IMAGE URL (read-only, shown on edit) ───
+                // ─── File URL (edit only) ───
                 Forms\Components\Section::make('File URL')
                     ->schema([
-                        Forms\Components\Placeholder::make('file_url_display')
-                            ->label('Public URL')
-                            ->content(fn (?Media $record): string => $record ? asset('storage/' . $record->path) : '')
-                            ->columnSpanFull(),
-                        Forms\Components\View::make('cms-core::filament.components.copy-url-button')
-                            ->viewData(['record' => fn (?Media $record) => $record]),
+                        Forms\Components\View::make('cms-core::filament.components.media-url-copy'),
                     ])
-                    ->visible(fn (?Media $record) => $record !== null)
-                    ->collapsed(false),
+                    ->visible(fn (?Media $record) => $record !== null),
             ]);
     }
 
@@ -86,7 +119,7 @@ class MediaResource extends Resource
             ->columns([
                 Tables\Columns\ImageColumn::make('path')
                     ->label('Preview')
-                    ->disk(config('cms.media_disk', 'public'))
+                    ->disk('public')
                     ->height(80)
                     ->width(80),
 
@@ -120,11 +153,6 @@ class MediaResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->defaultSort('created_at', 'desc')
-            ->contentGrid([
-                'md' => 2,
-                'lg' => 3,
-                'xl' => 4,
-            ])
             ->filters([
                 Tables\Filters\SelectFilter::make('folder')
                     ->options(fn () => Media::whereNotNull('folder')
@@ -138,19 +166,23 @@ class MediaResource extends Resource
                     ->query(fn ($query) => $query->where('mime_type', 'like', 'image/%')),
             ])
             ->actions([
+                Tables\Actions\ViewAction::make()
+                    ->label('Preview'),
+
                 Tables\Actions\Action::make('copy_url')
                     ->label('Copy URL')
                     ->icon('heroicon-o-clipboard-document')
                     ->color('gray')
                     ->action(function (Media $record) {
-                        // The URL is copied via JS in the frontend
+                        // URL is copied via Alpine.js on the frontend
                     })
                     ->extraAttributes(fn (Media $record) => [
-                        'x-on:click' => "
+                        'x-on:click.stop' => "
                             navigator.clipboard.writeText('" . asset('storage/' . $record->path) . "');
                             \$dispatch('notify', {message: 'URL copied to clipboard!'});
                         ",
                     ]),
+
                 Tables\Actions\EditAction::make(),
                 Tables\Actions\DeleteAction::make(),
             ])
@@ -158,7 +190,8 @@ class MediaResource extends Resource
                 Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\DeleteBulkAction::make(),
                 ]),
-            ]);
+            ])
+            ->recordUrl(fn (Media $record): string => static::getUrl('view', ['record' => $record]));
     }
 
     public static function getRelations(): array
@@ -171,6 +204,7 @@ class MediaResource extends Resource
         return [
             'index' => Pages\ListMedia::route('/'),
             'create' => Pages\CreateMedia::route('/create'),
+            'view' => Pages\ViewMedia::route('/{record}'),
             'edit' => Pages\EditMedia::route('/{record}/edit'),
         ];
     }

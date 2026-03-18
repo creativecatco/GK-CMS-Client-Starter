@@ -62,33 +62,31 @@ class ToolRegistry
     }
 
     /**
-     * Get a lightweight set of tool definitions, excluding heavy/rarely-used tools.
-     * This reduces token usage significantly for rate-limited API plans.
+     * Get a lightweight set of tool definitions, excluding rarely-used tools.
+     * This reduces token usage for rate-limited API plans while keeping
+     * all critical tools available.
      *
-     * Heavy tools excluded:
-     * - scan_website (~4K tokens) - only needed for importing external sites
+     * ALWAYS included (core workflow tools):
+     * - render_page: Essential for verifying changes work correctly
+     * - read_error_log: Essential for debugging broken pages
+     * - scan_website: Essential for analyzing the live site
+     * - generate_image, upload_image: Core image features
+     *
+     * Excluded (rarely needed, can be added to conversation context on demand):
      * - create_plugin (~4K tokens) - only needed for plugin development
-     * - render_page (~4K tokens) - only needed for visual inspection
-     * - run_query (~2K tokens) - debugging tool
-     * - read_file, write_file, list_files (~3K tokens) - debugging tools
-     * - run_artisan (~1K tokens) - debugging tool
-     * - read_error_log (~1K tokens) - debugging tool
-     *
-     * NOTE: generate_image and upload_image are NOT excluded — image generation
-     * is a core feature that must always be available to the AI.
+     * - run_query (~2K tokens) - advanced debugging
+     * - read_file, write_file, list_files (~3K tokens) - file system tools
+     * - run_artisan (~1K tokens) - advanced debugging
      */
     public function getLightweightToolDefinitions(): array
     {
         $heavyTools = [
-            'scan_website',
             'create_plugin',
-            'render_page',
             'run_query',
             'read_file',
             'write_file',
             'list_files',
             'run_artisan',
-            'read_error_log',
         ];
         return $this->getToolDefinitions($heavyTools);
     }

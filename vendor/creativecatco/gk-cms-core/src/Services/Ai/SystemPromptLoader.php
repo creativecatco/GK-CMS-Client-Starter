@@ -91,6 +91,12 @@ class SystemPromptLoader
         $context = "## Current Site State\n\n";
         $context .= "The following is the current state of this website. Use this information to understand what exists before making changes.\n\n";
 
+        // Site URL
+        $siteUrl = config('app.url', request()->getSchemeAndHttpHost());
+        $context .= "### Site URL\n\n";
+        $context .= "- **URL:** {$siteUrl}\n";
+        $context .= "- Use this URL with `scan_website` when you need to analyze the live site.\n\n";
+
         // Pages
         $context .= "### Existing Pages\n\n";
         $pages = Page::orderBy('sort_order')->get();
