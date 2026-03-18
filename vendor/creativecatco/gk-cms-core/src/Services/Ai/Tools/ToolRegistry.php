@@ -164,6 +164,10 @@ class ToolRegistry
         // Plugin System
         $registry->register(new CreatePluginTool());
 
+        // Knowledge Library
+        $registry->register(new GetKnowledgeTool());
+        $registry->register(new ListKnowledgeTool());
+
         return $registry;
     }
 }
