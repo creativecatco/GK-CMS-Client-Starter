@@ -25,7 +25,7 @@ class ReadErrorLogTool extends AbstractTool
 
     public function description(): string
     {
-        return 'Read the most recent Laravel error log entries. Use this to debug issues — broken pages, failed operations, PHP errors, etc. Returns the most recent log entries parsed into a structured format. Always check the error log when something goes wrong before attempting a fix.';
+        return 'Read the most recent Laravel error log entries. ALWAYS use this FIRST when something goes wrong — broken pages, failed operations, PHP errors, template issues, etc. Returns structured log entries with timestamps, levels, messages, and stack traces. This is your primary debugging tool.';
     }
 
     public function parameters(): array
@@ -35,11 +35,11 @@ class ReadErrorLogTool extends AbstractTool
             'properties' => [
                 'lines' => [
                     'type' => 'integer',
-                    'description' => 'Number of lines to read from the end of the log file. Default: 100. Max: 300.',
+                    'description' => 'Number of lines to read from the end of the log file. Default: 100. Max: 500.',
                 ],
                 'filter' => [
                     'type' => 'string',
-                    'description' => 'Optional filter keyword to show only matching log entries (e.g., "ERROR", "Blade", "Undefined", a specific page slug).',
+                    'description' => 'Optional filter keyword to show only matching log entries (e.g., "ERROR", "Blade", "Undefined", a specific page slug, "template").',
                 ],
             ],
             'required' => [],
@@ -48,7 +48,7 @@ class ReadErrorLogTool extends AbstractTool
 
     public function execute(array $params): array
     {
-        $maxLines = min($params['lines'] ?? 100, 300);
+        $maxLines = min($params['lines'] ?? 100, 500);
         $filter = $params['filter'] ?? null;
 
         $logPath = storage_path('logs/laravel.log');
@@ -83,15 +83,26 @@ class ReadErrorLogTool extends AbstractTool
                 return in_array($entry['level'], ['ERROR', 'CRITICAL', 'EMERGENCY', 'ALERT']);
             }));
 
+            $errorCount = count($recentErrors);
+
+            // Build a helpful summary
+            $summary = $errorCount > 0
+                ? "Found {$totalEntries} log entries, {$errorCount} are errors."
+                : "Found {$totalEntries} log entries, no recent errors.";
+
+            // Add the most recent error details to the summary for quick reference
+            if ($errorCount > 0) {
+                $latestError = end($recentErrors);
+                $summary .= " Latest error: [{$latestError['timestamp']}] {$latestError['message']}";
+            }
+
             return $this->success([
                 'total_entries' => $totalEntries,
                 'shown_entries' => count($entries),
-                'recent_errors' => count($recentErrors),
+                'recent_error_count' => $errorCount,
                 'entries' => $entries,
                 'log_file_size' => $this->formatFileSize(filesize($logPath)),
-            ], count($recentErrors) > 0
-                ? "Found {$totalEntries} log entries, {$recentErrors} are errors."
-                : "Found {$totalEntries} log entries, no recent errors.");
+            ], $summary);
         } catch (\Exception $e) {
             return $this->error('Failed to read error log: ' . $e->getMessage());
         }

@@ -218,7 +218,15 @@ class AiChatController extends Controller
         }
 
         if (!$action->canRollback()) {
-            return response()->json(['error' => 'This action cannot be undone'], 422);
+            $reason = 'This action cannot be undone.';
+            if ($action->status === 'rolled_back') {
+                $reason = 'This action has already been undone.';
+            } elseif ($action->status === 'failed') {
+                $reason = 'This action failed originally and cannot be undone.';
+            } elseif (empty($action->rollback_data)) {
+                $reason = 'No rollback data was captured for this action. This may happen if the action type does not support undo.';
+            }
+            return response()->json(['error' => $reason], 422);
         }
 
         try {
