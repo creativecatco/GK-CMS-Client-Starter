@@ -110,6 +110,7 @@ class ToolRegistry
         $registry->register(new GetSiteOverviewTool());
         $registry->register(new GetPageInfoTool());
         $registry->register(new GetFieldValueTool());
+        $registry->register(new GetPageTemplateTool());
         $registry->register(new ListPagesTool());
         $registry->register(new GetThemeTool());
         $registry->register(new GetSettingsTool());
