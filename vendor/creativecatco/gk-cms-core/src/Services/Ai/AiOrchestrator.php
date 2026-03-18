@@ -305,7 +305,7 @@ class AiOrchestrator
                 // Add tool result to messages for the next LLM call
                 // Smart truncation: preserve critical data, trim verbose parts
                 $llmResultContent = $toolResultContent;
-                $maxResultSize = 8000; // Allow larger results for data-rich tools
+                $maxResultSize = 12000; // Allow larger results for data-rich tools (pages can have 35+ fields)
 
                 if (strlen($llmResultContent) > $maxResultSize) {
                     $llmResultContent = $this->smartTruncateToolResult($toolName, $result, $maxResultSize);
@@ -551,6 +551,56 @@ class AiOrchestrator
             if (strlen($encoded) <= $maxSize) {
                 return $encoded;
             }
+
+            // Still too large — progressively truncate field_map values
+            // Step 1: Truncate long string values and summarize arrays in field_map
+            if (isset($data['field_map']) && is_array($data['field_map'])) {
+                foreach ($data['field_map'] as $key => &$entry) {
+                    if (!isset($entry['value'])) continue;
+                    $val = $entry['value'];
+                    if (is_array($val)) {
+                        // Summarize arrays (repeaters, button groups)
+                        if (isset($val['image'])) {
+                            // section_bg — keep it (important for image tasks)
+                            continue;
+                        }
+                        $entry['value'] = '[array with ' . count($val) . ' items]';
+                    } elseif (is_string($val) && strlen($val) > 150) {
+                        $entry['value'] = mb_substr($val, 0, 150) . '...';
+                    }
+                }
+                unset($entry);
+            }
+
+            // Step 2: Further truncate template if needed
+            if (isset($data['custom_template']) && is_string($data['custom_template']) && strlen($data['custom_template']) > 1500) {
+                $data['custom_template'] = mb_substr($data['custom_template'], 0, 1500) . '\n... [template further truncated]';
+            }
+
+            // Step 3: Remove non-essential metadata
+            unset($data['custom_css'], $data['featured_image'], $data['sort_order']);
+
+            $truncated['data'] = $data;
+            $encoded = json_encode($truncated);
+
+            if (strlen($encoded) <= $maxSize) {
+                return $encoded;
+            }
+
+            // Step 4: Last resort — keep only field_map with types and truncated values
+            $minimalData = [
+                'id' => $data['id'] ?? null,
+                'title' => $data['title'] ?? null,
+                'slug' => $data['slug'] ?? null,
+                'page_type' => $data['page_type'] ?? 'page',
+                'field_map' => $data['field_map'] ?? [],
+            ];
+            return json_encode([
+                'success' => $result['success'] ?? true,
+                'message' => $result['message'] ?? 'Page retrieved.',
+                'data' => $minimalData,
+                '_note' => 'Result heavily truncated to fit token limit. Template omitted — use get_page_info again or patch_page_template for template changes.',
+            ]);
         }
 
         // For render_page: preserve sections and issues, trim raw template
