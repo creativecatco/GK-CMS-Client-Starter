@@ -634,6 +634,20 @@
                                 </button>
                             </div>
 
+                            {{-- Selected Field Reference Tag --}}
+                            <div x-show="selectedField" x-transition class="flex items-center gap-2 mb-2">
+                                <div class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white" style="background-color: #4f46e5;">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"/></svg>
+                                    <span>Targeting:</span>
+                                    <span x-text="'@' + selectedField?.field" class="font-bold"></span>
+                                    <span class="opacity-70" x-text="'(' + (selectedField?.type || 'text') + ')'" ></span>
+                                    <span class="opacity-70" x-text="'on ' + selectedField?.page"></span>
+                                    <button @click="clearSelectedField()" class="ml-1 p-0.5 rounded hover:bg-white/20 transition">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                                    </button>
+                                </div>
+                            </div>
+
                             {{-- Main Input Row --}}
                             <div class="flex gap-2">
                                 {{-- Hidden file input --}}
@@ -923,6 +937,9 @@
                 previewUrl: '/',
                 previewMode: 'desktop',
 
+                // Click-to-reference state (driven by inline editor's AI Select mode via postMessage)
+                selectedField: null,      // {field: 'hero_heading', type: 'text', page: 'home', label: 'Hero Heading'}
+
                 // Initialize
                 init() {
                     this.initProviderSelection();
@@ -961,6 +978,34 @@
                         if (this.$refs.messageInput) {
                             this.$refs.messageInput.focus();
                         }
+
+                        // Listen for field selection messages from the inline editor via postMessage
+                        window.addEventListener('message', (event) => {
+                            if (event.data && event.data.type === 'gk-field-selected') {
+                                const d = event.data;
+                                this.selectedField = {
+                                    field: d.field,
+                                    type: d.fieldType || 'text',
+                                    page: d.page || this.previewUrl.replace(/^\//, '').replace(/\/$/, '') || 'home',
+                                    label: d.label || d.field,
+                                    preview: d.preview || '',
+                                };
+                                // Insert @field_name at cursor position in chat input
+                                const input = this.$refs.messageInput;
+                                if (input) {
+                                    const tag = '@' + d.field + ' ';
+                                    const start = input.selectionStart || this.inputMessage.length;
+                                    const before = this.inputMessage.substring(0, start);
+                                    const after = this.inputMessage.substring(input.selectionEnd || start);
+                                    this.inputMessage = before + tag + after;
+                                    this.$nextTick(() => {
+                                        input.focus();
+                                        const newPos = start + tag.length;
+                                        input.setSelectionRange(newPos, newPos);
+                                    });
+                                }
+                            }
+                        });
                     });
                 },
 
@@ -1162,10 +1207,19 @@
 
                     if (!message) return;
 
+                    // Inject selected field context if a field is targeted
+                    if (!retrying && this.selectedField) {
+                        const sf = this.selectedField;
+                        const fieldContext = `[FIELD CONTEXT: The user is referring to field "${sf.field}" (type: ${sf.type || 'text'}) on page "${sf.page}". Use get_field_value to read its current value, then apply the requested change with update_page_fields.]`;
+                        message = `${message}\n\n${fieldContext}`;
+                    }
+
                     if (!retrying) {
                         this._lastMessage = message;
                         this.inputMessage = '';
                         this.retryCount = 0;
+                        // Clear the selected field after sending
+                        this.clearSelectedField();
                         // Add user message to display (show only the user's typed text, not the full context)
                         const displayText = userText || ('Uploaded ' + this.uploadedFiles.map(f => f.filename).join(', '));
                         const docNames = this.uploadedFiles.filter(f => f.type !== 'image' && f.content).map(f => f.filename);
@@ -1696,7 +1750,21 @@
                 toggleActions() { this.showActions = !this.showActions; },
                 togglePreview() { this.showPreview = !this.showPreview; },
 
+                // ─── Click-to-Reference ───
+
+                clearSelectedField() {
+                    this.selectedField = null;
+                    // Tell the iframe to clear its selection via postMessage
+                    try {
+                        const frame = this.$refs.previewFrame;
+                        if (frame && frame.contentWindow) {
+                            frame.contentWindow.postMessage({ type: 'gk-clear-selection' }, '*');
+                        }
+                    } catch (e) {}
+                },
+
                 refreshPreview() {
+                    this.clearSelectedField();
                     const frame = this.$refs.previewFrame;
                     if (frame) {
                         const currentSrc = frame.src;
@@ -1953,6 +2021,13 @@
                         'get_preferences': { running: 'Loading your preferences...', done: 'Preferences loaded' },
                         // SEO tools
                         'suggest_seo': { running: 'Analyzing SEO metadata...', done: 'SEO analysis complete' },
+                        // Field & template tools
+                        'get_field_value': { running: 'Reading field data...', done: 'Field data loaded' },
+                        'get_page_template': { running: 'Reading page template code...', done: 'Template loaded' },
+                        'patch_page_template': { running: 'Applying targeted template fix...', done: 'Template patched!' },
+                        // Knowledge tools
+                        'get_knowledge': { running: 'Loading reference documentation...', done: 'Knowledge loaded' },
+                        'list_knowledge': { running: 'Checking available references...', done: 'References listed' },
                         // Plugin tools
                         'create_plugin': { running: 'Scaffolding custom plugin...', done: 'Plugin created!' },
                     };

@@ -424,6 +424,36 @@
 
             body.gk-editor-active { padding-top: 44px; }
 
+            /* ─── AI Reference Mode ─── */
+            .gk-ai-ref-active [data-field] {
+                cursor: crosshair !important;
+                transition: outline-color 0.15s ease, box-shadow 0.15s ease;
+            }
+            .gk-ai-ref-active [data-field]:hover {
+                outline: 2px solid #7c3aed !important;
+                outline-offset: 4px;
+                box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.15);
+            }
+            .gk-ai-ref-active [data-section-bg] {
+                cursor: crosshair !important;
+            }
+            .gk-ai-ref-active [data-section-bg]:hover {
+                outline: 2px solid #7c3aed !important;
+                outline-offset: -2px;
+                box-shadow: inset 0 0 0 4px rgba(124, 58, 237, 0.15);
+            }
+            .gk-ai-ref-selected {
+                outline: 3px solid #7c3aed !important;
+                outline-offset: 4px;
+                box-shadow: 0 0 0 6px rgba(124, 58, 237, 0.25) !important;
+            }
+            .gk-btn-ai {
+                background: linear-gradient(135deg, #7c3aed, #6d28d9);
+                color: white; border: none;
+            }
+            .gk-btn-ai:hover { background: linear-gradient(135deg, #6d28d9, #5b21b6); }
+            .gk-btn-ai.active { background: linear-gradient(135deg, #6d28d9, #5b21b6); box-shadow: 0 0 0 2px rgba(124,58,237,0.5); }
+
             /* ─── CSS Sidebar ─── */
             .gk-css-sidebar {
                 position: fixed; top: 44px; right: 0; bottom: 0; width: 420px;
@@ -495,6 +525,7 @@
                 <a href="/admin" class="gk-btn-admin">Admin Panel</a>
                 <button class="gk-btn-toggle" id="gk-btn-css" onclick="GKEditor.toggleCssSidebar()" style="display:none;">CSS</button>
                 <button class="gk-btn-toggle" id="gk-btn-theme" onclick="GKEditor.toggleThemePanel()" style="display:none;">Theme</button>
+                <button class="gk-btn-ai gk-btn-toggle" id="gk-btn-ai-ref" onclick="GKEditor.toggleAiReference()" style="display:none;">AI Select</button>
                 <button class="gk-btn-toggle" id="gk-btn-edit" onclick="GKEditor.toggleEdit()">Edit Page</button>
                 <button class="gk-btn-save" id="gk-btn-save" onclick="GKEditor.save()" disabled style="display:none;">Save Changes</button>
                 <button class="gk-btn-cancel" id="gk-btn-discard" onclick="GKEditor.discard()" style="display:none;">Discard</button>
@@ -614,6 +645,8 @@
         <script>
             const GKEditor = {
                 isEditing: false,
+                isAiRefMode: false,
+                aiRefSelectedEl: null,
                 changes: {},
                 originalValues: {},
                 originalBgValues: {},
@@ -667,6 +700,12 @@
 
                 init() {
                     document.body.classList.add('gk-editor-active');
+
+                    // Show AI Select button if we're inside an iframe (admin AI assistant)
+                    if (window !== window.parent) {
+                        const aiBtn = document.getElementById('gk-btn-ai-ref');
+                        if (aiBtn) aiBtn.style.display = '';
+                    }
 
                     // Bridge: Convert data-field + data-field-type="section_bg" to data-section-bg
                     // The AI creates sections with data-field="hero_bg" data-field-type="section_bg"
@@ -751,6 +790,109 @@
                             overlayBg: overlayEl ? overlayEl.style.background : ''
                         };
                     });
+                },
+
+                // ─── AI Reference Mode ───
+                toggleAiReference() {
+                    this.isAiRefMode = !this.isAiRefMode;
+                    const btn = document.getElementById('gk-btn-ai-ref');
+                    const status = document.getElementById('gk-editor-status');
+
+                    if (this.isAiRefMode) {
+                        // Disable editing mode if active
+                        if (this.isEditing) this.toggleEdit();
+                        btn.textContent = 'Exit AI Select';
+                        btn.classList.add('active');
+                        document.body.classList.add('gk-ai-ref-active');
+                        status.textContent = 'AI Select: Click any element to reference it in chat';
+                        this.enableAiRefClickHandlers();
+                    } else {
+                        btn.textContent = 'AI Select';
+                        btn.classList.remove('active');
+                        document.body.classList.remove('gk-ai-ref-active');
+                        status.textContent = 'Click "Edit" to start editing';
+                        this.disableAiRefClickHandlers();
+                        if (this.aiRefSelectedEl) {
+                            this.aiRefSelectedEl.classList.remove('gk-ai-ref-selected');
+                            this.aiRefSelectedEl = null;
+                        }
+                    }
+                },
+
+                enableAiRefClickHandlers() {
+                    // Regular fields
+                    document.querySelectorAll('[data-field]').forEach(el => {
+                        el._aiRefHandler = (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            this.selectFieldForAi(el, el.dataset.field, el.dataset.fieldType || 'text');
+                        };
+                        el.addEventListener('click', el._aiRefHandler, true);
+                    });
+                    // Section backgrounds
+                    document.querySelectorAll('[data-section-bg]').forEach(el => {
+                        el._aiRefHandler = (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            this.selectFieldForAi(el, el.dataset.sectionBg, 'section_bg');
+                        };
+                        el.addEventListener('click', el._aiRefHandler, true);
+                    });
+                },
+
+                disableAiRefClickHandlers() {
+                    document.querySelectorAll('[data-field]').forEach(el => {
+                        if (el._aiRefHandler) {
+                            el.removeEventListener('click', el._aiRefHandler, true);
+                            delete el._aiRefHandler;
+                        }
+                    });
+                    document.querySelectorAll('[data-section-bg]').forEach(el => {
+                        if (el._aiRefHandler) {
+                            el.removeEventListener('click', el._aiRefHandler, true);
+                            delete el._aiRefHandler;
+                        }
+                    });
+                },
+
+                selectFieldForAi(el, fieldName, fieldType) {
+                    // Remove previous selection
+                    if (this.aiRefSelectedEl) {
+                        this.aiRefSelectedEl.classList.remove('gk-ai-ref-selected');
+                    }
+                    // Highlight the selected element
+                    el.classList.add('gk-ai-ref-selected');
+                    this.aiRefSelectedEl = el;
+
+                    // Get a preview of the current value
+                    let preview = '';
+                    if (fieldType === 'section_bg') {
+                        preview = el.style.backgroundImage ? 'has background' : 'no background';
+                    } else if (fieldType === 'image') {
+                        preview = el.tagName === 'IMG' ? el.src.split('/').pop() : 'image';
+                    } else {
+                        preview = (el.textContent || '').trim().substring(0, 80);
+                    }
+
+                    // Send to parent window via postMessage
+                    const data = {
+                        type: 'gk-field-selected',
+                        field: fieldName,
+                        fieldType: fieldType,
+                        page: this.pageSlug,
+                        preview: preview,
+                        label: el.dataset.fieldLabel || fieldName.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+                    };
+
+                    if (window !== window.parent) {
+                        window.parent.postMessage(data, '*');
+                    }
+
+                    // Update status bar
+                    document.getElementById('gk-editor-status').textContent =
+                        `Selected: @${fieldName} (${fieldType}) — click another element or type in chat`;
+
+                    this.toast(`Selected @${fieldName}`, 'success');
                 },
 
                 toggleEdit() {
@@ -2858,6 +3000,16 @@
 
             // Initialize
             GKEditor.init();
+
+            // Listen for clear-selection messages from the parent (admin AI assistant)
+            window.addEventListener('message', (event) => {
+                if (event.data && event.data.type === 'gk-clear-selection') {
+                    if (GKEditor.aiRefSelectedEl) {
+                        GKEditor.aiRefSelectedEl.classList.remove('gk-ai-ref-selected');
+                        GKEditor.aiRefSelectedEl = null;
+                    }
+                }
+            });
 
             // Close popover when clicking outside
             document.addEventListener('click', (e) => {
