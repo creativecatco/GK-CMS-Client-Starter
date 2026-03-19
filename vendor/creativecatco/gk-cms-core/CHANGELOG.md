@@ -5,6 +5,13 @@ All notable changes to GKeys CMS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.6.8] - 2026-03-19
+
+### Fixed
+- **ZIP/HTML Import Path Resolution**: AI assistant sometimes used incorrect file paths when calling import tools. Added smart fallback path resolution that searches `storage/app/zip-imports/` and `storage/app/html-imports/` for recently uploaded files when the exact path doesn't match
+- Made file upload metadata more emphatic about using the exact storage path to reduce AI hallucination
+- Updated system prompt with explicit instructions to copy storage paths verbatim
+
 ## [0.8.6.7] - 2026-03-19
 
 ### Fixed

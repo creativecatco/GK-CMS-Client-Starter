@@ -179,8 +179,11 @@ class FileExtractor
         $summary = substr(trim($bodyText), 0, 200);
 
         // Return ONLY metadata — keep it well under the 10K message limit
+        // NOTE: The storage_path MUST be used EXACTLY as shown below.
         $result = "[HTML FILE READY FOR IMPORT]\n";
-        $result .= "Storage path: {$storagePath}\n";
+        $result .= "\n";
+        $result .= "EXACT storage_path (use this VERBATIM): {$storagePath}\n";
+        $result .= "\n";
         $result .= "Original filename: {$originalName}\n";
         $result .= "File size: " . strlen($html) . " bytes\n";
         if ($title) {
@@ -188,8 +191,9 @@ class FileExtractor
         }
         $result .= "Content preview: {$summary}...\n";
         $result .= "\n";
-        $result .= "ACTION REQUIRED: Use the import_html_page tool to convert this HTML file into a CMS page.\n";
-        $result .= "Call: import_html_page(storage_path: \"{$storagePath}\", title: \"...\", slug: \"...\")\n";
+        $result .= "ACTION REQUIRED: Call import_html_page with the EXACT storage_path shown above.\n";
+        $result .= "CORRECT call: import_html_page(storage_path: \"{$storagePath}\", title: \"...\", slug: \"...\")\n";
+        $result .= "WARNING: Do NOT change or shorten the storage_path. Use the full absolute path exactly as provided.\n";
         $result .= "The tool will automatically extract all CSS, preserve the HTML structure, and create editable fields.";
 
         return $result;
@@ -397,8 +401,11 @@ class FileExtractor
         }
 
         // Return metadata for the AI
+        // NOTE: The storage_path MUST be used EXACTLY as shown below — do NOT modify or shorten it.
         $result = "[ZIP ARCHIVE READY FOR IMPORT]\n";
-        $result .= "Storage path: {$storagePath}\n";
+        $result .= "\n";
+        $result .= "EXACT storage_path (use this VERBATIM): {$storagePath}\n";
+        $result .= "\n";
         $result .= "Original filename: {$originalName}\n";
         $result .= "Archive size: " . number_format($totalSize / 1024, 1) . " KB\n";
         $result .= "Contents: {$htmlCount} HTML file(s), {$imageCount} image(s), {$cssCount} CSS file(s)\n";
@@ -406,8 +413,9 @@ class FileExtractor
             $result .= "HTML files: " . implode(', ', array_slice($htmlFiles, 0, 20)) . "\n";
         }
         $result .= "\n";
-        $result .= "ACTION REQUIRED: Use the import_zip_site tool to import all pages and images from this archive.\n";
-        $result .= "Call: import_zip_site(storage_path: \"{$storagePath}\")\n";
+        $result .= "ACTION REQUIRED: Call import_zip_site with the EXACT storage_path shown above.\n";
+        $result .= "CORRECT call: import_zip_site(storage_path: \"{$storagePath}\")\n";
+        $result .= "WARNING: Do NOT change or shorten the storage_path. Use the full absolute path exactly as provided.\n";
         $result .= "The tool will automatically import images to the media library, process each HTML page, and create CMS pages.";
 
         return $result;
