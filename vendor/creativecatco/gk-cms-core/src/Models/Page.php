@@ -164,6 +164,7 @@ class Page extends Model
     /**
      * Render a button as HTML. Safe to use with {!! !!} in Blade templates.
      * Uses the theme's primary/secondary colors for styling.
+     * Supports optional custom_color and custom_text_color overrides.
      */
     public function renderButton(string $key, array $defaults = []): string
     {
@@ -175,16 +176,35 @@ class Page extends Model
         $text = e($btn['text'] ?? 'Click Here');
         $link = e($btn['link'] ?? '#');
         $style = $btn['style'] ?? 'primary';
+        $customColor = $btn['custom_color'] ?? null;
+        $customTextColor = $btn['custom_text_color'] ?? null;
 
-        if ($style === 'primary') {
-            $classes = 'inline-block px-8 py-3 rounded-lg font-semibold text-lg transition-all duration-300 hover:opacity-90 hover:shadow-lg';
+        $classes = 'inline-block px-8 py-3 rounded-lg font-semibold text-lg transition-all duration-300 hover:opacity-90 hover:shadow-lg';
+        $inlineStyle = '';
+
+        if (!empty($customColor)) {
+            // Custom color override — takes priority over style presets
+            $inlineStyle = 'background-color: ' . e($customColor) . ';';
+            if (!empty($customTextColor)) {
+                $inlineStyle .= ' color: ' . e($customTextColor) . ';';
+            } else {
+                // Auto-detect contrast: light bg gets dark text, dark bg gets white text
+                $hex = ltrim($customColor, '#');
+                if (strlen($hex) === 6) {
+                    $r = hexdec(substr($hex, 0, 2));
+                    $g = hexdec(substr($hex, 2, 2));
+                    $b = hexdec(substr($hex, 4, 2));
+                    $yiq = (($r * 299) + ($g * 587) + ($b * 114)) / 1000;
+                    $inlineStyle .= ' color: ' . ($yiq >= 128 ? '#000000' : '#FFFFFF') . ';';
+                } else {
+                    $inlineStyle .= ' color: #FFFFFF;';
+                }
+            }
+        } elseif ($style === 'primary') {
             $inlineStyle = 'background-color: var(--color-primary); color: var(--color-secondary);';
         } elseif ($style === 'secondary') {
-            $classes = 'inline-block px-8 py-3 rounded-lg font-semibold text-lg transition-all duration-300 hover:opacity-90 border-2';
-            $inlineStyle = 'border-color: var(--color-primary); color: var(--color-primary);';
-        } else {
-            $classes = 'inline-block px-8 py-3 rounded-lg font-semibold text-lg transition-all duration-300 hover:opacity-90';
-            $inlineStyle = '';
+            $classes .= ' border-2';
+            $inlineStyle = 'border-color: var(--color-primary); color: var(--color-primary); background-color: transparent;';
         }
 
         return '<a href="' . $link . '" class="' . $classes . '" style="' . $inlineStyle . '" data-field="' . e($key) . '" data-field-type="button">' . $text . '</a>';
