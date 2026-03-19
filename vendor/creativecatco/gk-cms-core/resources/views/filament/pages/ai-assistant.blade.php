@@ -182,9 +182,24 @@
         <div x-data="aiAssistant()" x-init="init()" class="flex gap-0 w-full" style="height: calc(100vh - 4rem);">
 
             {{-- Left Side: Chat Panel --}}
-            <div class="flex flex-col border-r border-gray-200 dark:border-gray-700"
+            <div class="flex flex-col border-r border-gray-200 dark:border-gray-700 relative"
                  :class="showPreview ? 'w-[420px] flex-shrink-0' : 'flex-1'"
-                 :style="showPreview ? 'min-width: 380px; max-width: 520px;' : ''">
+                 :style="showPreview ? 'min-width: 380px; max-width: 520px;' : ''"
+                 @dragover.prevent="isDragging = true"
+                 @dragleave.prevent="isDragging = false"
+                 @drop.prevent="isDragging = false; handleDrop($event)">
+
+                {{-- Drag-and-drop overlay --}}
+                <div x-show="isDragging" x-transition
+                     class="absolute inset-0 z-50 bg-primary-500/10 border-2 border-dashed border-primary-500 rounded-lg flex items-center justify-center pointer-events-none">
+                    <div class="bg-white dark:bg-gray-800 rounded-xl px-6 py-4 shadow-lg text-center">
+                        <svg class="w-8 h-8 mx-auto mb-2 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                        </svg>
+                        <p class="text-sm font-medium text-gray-700 dark:text-gray-300">Drop files here</p>
+                        <p class="text-xs text-gray-400 mt-1">HTML, PDF, images, documents</p>
+                    </div>
+                </div>
 
                 {{-- Top Bar: Conversation Controls --}}
                 <div class="flex items-center gap-2 px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
@@ -650,52 +665,21 @@
 
                             {{-- Main Input Row --}}
                             <div class="flex gap-2">
-                                {{-- Hidden file input --}}
+                                {{-- Hidden file input (accepts ALL supported types) --}}
                                 <input x-ref="fileInput" type="file" class="hidden"
                                        accept=".txt,.md,.csv,.html,.htm,.rtf,.pdf,.docx,.doc,.jpg,.jpeg,.png,.gif,.webp,.svg"
                                        multiple
                                        @change="handleFileSelect($event)" />
 
-                                {{-- Attach Button (dropdown) --}}
-                                <div x-data="{ showAttachMenu: false }" class="relative flex-shrink-0">
-                                    <button @click="showAttachMenu = !showAttachMenu"
-                                            :disabled="isStreaming"
-                                            class="p-3 rounded-xl border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 transition disabled:opacity-50"
-                                            title="Attach files or import content">
-                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
-                                        </svg>
-                                    </button>
-                                    {{-- Dropdown Menu --}}
-                                    <div x-show="showAttachMenu" @click.away="showAttachMenu = false" x-transition
-                                         class="absolute bottom-full left-0 mb-2 w-56 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 shadow-lg py-1 z-50">
-                                        <button @click="triggerFileUpload(); showAttachMenu = false;"
-                                                class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition">
-                                            <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                                            Upload Document
-                                            <span class="text-[10px] text-gray-400 ml-auto">PDF, DOCX, TXT...</span>
-                                        </button>
-                                        <button @click="$refs.imageInput.click(); showAttachMenu = false;"
-                                                class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition">
-                                            <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
-                                            Upload Image
-                                            <span class="text-[10px] text-gray-400 ml-auto">PNG, JPG, SVG...</span>
-                                        </button>
-                                        <div class="border-t border-gray-100 dark:border-gray-700 my-1"></div>
-                                        <button @click="showGdocInput = true; showAttachMenu = false; $nextTick(() => { if(document.querySelector('[x-model=gdocUrl]')) document.querySelector('[x-model=gdocUrl]').focus(); });"
-                                                class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition">
-                                            <svg class="w-4 h-4 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
-                                            Import Google Doc
-                                            <span class="text-[10px] text-gray-400 ml-auto">Public link</span>
-                                        </button>
-                                    </div>
-                                </div>
-
-                                {{-- Hidden image-only input --}}
-                                <input x-ref="imageInput" type="file" class="hidden"
-                                       accept="image/jpeg,image/png,image/gif,image/webp,image/svg+xml,.jpg,.jpeg,.png,.gif,.webp,.svg"
-                                       multiple
-                                       @change="handleFileSelect($event)" />
+                                {{-- Attach Button (direct — opens file picker immediately) --}}
+                                <button @click="triggerFileUpload()"
+                                        :disabled="isStreaming"
+                                        class="p-3 rounded-xl border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 transition disabled:opacity-50 flex-shrink-0"
+                                        title="Attach file">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+                                    </svg>
+                                </button>
 
                                 {{-- Text Input --}}
                                 <textarea x-ref="messageInput"
@@ -927,6 +911,7 @@
                 // File upload state
                 uploadedFiles: [],       // Array of {filename, content, chars, uploading, error}
                 isUploading: false,
+                isDragging: false,
                 showGdocInput: false,
                 gdocUrl: '',
 
@@ -1565,6 +1550,16 @@
                 // Trigger the hidden file input
                 triggerFileUpload() {
                     this.$refs.fileInput.click();
+                },
+
+                // Handle drag-and-drop files
+                async handleDrop(event) {
+                    const files = event.dataTransfer?.files;
+                    if (!files || files.length === 0) return;
+
+                    for (const file of files) {
+                        await this.uploadFile(file);
+                    }
                 },
 
                 // Handle file selection

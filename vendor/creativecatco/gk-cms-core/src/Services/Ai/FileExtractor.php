@@ -141,31 +141,55 @@ class FileExtractor
     }
 
     /**
-     * Extract from HTML files — preserve raw HTML for CMS import.
+     * Extract from HTML files — save raw file for CMS import, return metadata only.
      *
-     * HTML files are special: we keep the FULL raw content (CSS, structure, classes)
-     * because the ImportHtmlTool needs it to faithfully replicate the page.
-     * We also save the raw file to storage so the import tool can access it directly.
+     * HTML files are special: we save the FULL raw content to disk so the
+     * ImportHtmlTool can access it directly. We return ONLY the metadata
+     * (storage path + instructions) — NOT the raw HTML — to avoid exceeding
+     * the chat message size limit (10,000 chars).
      */
     protected function extractHtml(UploadedFile $file): string
     {
         $html = file_get_contents($file->getRealPath());
+        $originalName = $file->getClientOriginalName();
 
         // Save the raw HTML file to storage for the ImportHtmlTool to use
-        $filename = 'html-imports/' . time() . '_' . preg_replace('/[^a-zA-Z0-9._-]/', '_', $file->getClientOriginalName());
-        \Illuminate\Support\Facades\Storage::disk('local')->put($filename, $html);
+        $filename = 'html-imports/' . time() . '_' . preg_replace('/[^a-zA-Z0-9._-]/', '_', $originalName);
 
-        // Return the raw HTML so the AI can see the full structure
-        // Prefix with metadata so the AI knows the file is available for import
+        // Ensure the directory exists
+        $dir = storage_path('app/html-imports');
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+
+        // Write directly to filesystem (more reliable than Storage facade on shared hosting)
         $storagePath = storage_path('app/' . $filename);
-        $prefix = "[HTML FILE SAVED FOR IMPORT]\n";
-        $prefix .= "Storage path: {$storagePath}\n";
-        $prefix .= "Original filename: {$file->getClientOriginalName()}\n";
-        $prefix .= "Use the import_html_page tool with this storage_path to convert this HTML file into a CMS page.\n";
-        $prefix .= "The import tool will automatically extract CSS, convert the HTML structure, and create editable fields.\n";
-        $prefix .= "---\n\n";
+        file_put_contents($storagePath, $html);
 
-        return $prefix . $html;
+        // Extract a brief summary for the AI context (NOT the full HTML)
+        $title = '';
+        if (preg_match('/<title[^>]*>(.*?)<\/title>/is', $html, $titleMatch)) {
+            $title = trim(strip_tags($titleMatch[1]));
+        }
+        $bodyText = strip_tags(preg_replace('/<style[^>]*>.*?<\/style>/is', '', $html));
+        $bodyText = preg_replace('/\s+/', ' ', $bodyText);
+        $summary = substr(trim($bodyText), 0, 200);
+
+        // Return ONLY metadata — keep it well under the 10K message limit
+        $result = "[HTML FILE READY FOR IMPORT]\n";
+        $result .= "Storage path: {$storagePath}\n";
+        $result .= "Original filename: {$originalName}\n";
+        $result .= "File size: " . strlen($html) . " bytes\n";
+        if ($title) {
+            $result .= "Page title: {$title}\n";
+        }
+        $result .= "Content preview: {$summary}...\n";
+        $result .= "\n";
+        $result .= "ACTION REQUIRED: Use the import_html_page tool to convert this HTML file into a CMS page.\n";
+        $result .= "Call: import_html_page(storage_path: \"{$storagePath}\", title: \"...\", slug: \"...\")\n";
+        $result .= "The tool will automatically extract all CSS, preserve the HTML structure, and create editable fields.";
+
+        return $result;
     }
 
     /**
