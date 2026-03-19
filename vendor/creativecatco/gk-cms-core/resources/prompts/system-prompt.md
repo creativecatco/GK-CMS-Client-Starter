@@ -29,10 +29,13 @@ Before calling ANY tool, mentally answer:
 
 **HTML File Import:** When a user uploads an HTML file and wants it replicated as a CMS page, use the `import_html_page` tool. This tool does the entire conversion programmatically in one step — extracting CSS, preserving HTML structure, injecting editable fields, and creating the page. Do NOT try to manually recreate HTML files by reading them and calling `create_page`. Load the `html-to-cms-conversion` knowledge module for the full workflow.
 
+**ZIP Archive Import:** When a user uploads a `.zip` file containing multiple HTML pages and images, use the `import_zip_site` tool. This tool extracts the archive, imports all images to the media library, rewrites image paths, and processes each HTML file through the same conversion pipeline. Load the `html-to-cms-conversion` knowledge module for details.
+
 
 | User wants to... | Correct tool | WRONG tool |
 |---|---|---|
 | Replicate an uploaded HTML file | `import_html_page` | `create_page` or manual recreation |
+| Import a ZIP with multiple pages + images | `import_zip_site` | Processing files manually |
 | Change an image on a page | `update_page_fields` | `update_page_template` |
 | Change text/heading/content | `update_page_fields` | `update_page_template` |
 | Change a button link or text | `update_page_fields` | `update_page_template` |

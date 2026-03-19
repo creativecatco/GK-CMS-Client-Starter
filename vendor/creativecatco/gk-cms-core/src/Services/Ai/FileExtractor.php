@@ -35,6 +35,8 @@ class FileExtractor
         'application/pdf' => 'extractPdf',
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'extractDocx',
         'application/msword' => 'extractDoc',
+        'application/zip' => 'extractZip',
+        'application/x-zip-compressed' => 'extractZip',
     ];
 
     /**
@@ -50,6 +52,7 @@ class FileExtractor
         'pdf' => 'extractPdf',
         'docx' => 'extractDocx',
         'doc' => 'extractDoc',
+        'zip' => 'extractZip',
     ];
 
     /**
@@ -129,7 +132,7 @@ class FileExtractor
      */
     public static function getSupportedExtensions(): array
     {
-        return ['txt', 'md', 'csv', 'html', 'htm', 'rtf', 'pdf', 'docx', 'doc'];
+        return ['txt', 'md', 'csv', 'html', 'htm', 'rtf', 'pdf', 'docx', 'doc', 'zip'];
     }
 
     /**
@@ -337,6 +340,77 @@ class FileExtractor
         $text = preg_replace('/\s+/', ' ', $text);
 
         return trim($text) ?: 'Unable to extract text from this .doc file. Please save it as .docx or .txt format and try again.';
+    }
+
+    /**
+     * Extract from ZIP files — save to disk for ImportZipTool, return metadata only.
+     *
+     * ZIP files are handled like HTML files: the raw archive is saved to disk
+     * and only metadata is returned to the AI context. The ImportZipTool
+     * reads the ZIP directly from the filesystem.
+     */
+    protected function extractZip(UploadedFile $file): string
+    {
+        $originalName = $file->getClientOriginalName();
+
+        // Save the ZIP file to storage for the ImportZipTool to use
+        $filename = 'zip-imports/' . time() . '_' . preg_replace('/[^a-zA-Z0-9._-]/', '_', $originalName);
+
+        // Ensure the directory exists
+        $dir = storage_path('app/zip-imports');
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+
+        $storagePath = storage_path('app/' . $filename);
+        copy($file->getRealPath(), $storagePath);
+
+        // Scan the ZIP contents to provide a summary
+        $htmlCount = 0;
+        $imageCount = 0;
+        $cssCount = 0;
+        $otherCount = 0;
+        $htmlFiles = [];
+        $totalSize = filesize($storagePath);
+
+        $zip = new \ZipArchive();
+        if ($zip->open($storagePath) === true) {
+            for ($i = 0; $i < $zip->numFiles; $i++) {
+                $entry = $zip->getNameIndex($i);
+                // Skip directories and macOS metadata
+                if (str_ends_with($entry, '/') || str_contains($entry, '__MACOSX')) {
+                    continue;
+                }
+                $ext = strtolower(pathinfo($entry, PATHINFO_EXTENSION));
+                if (in_array($ext, ['html', 'htm'])) {
+                    $htmlCount++;
+                    $htmlFiles[] = basename($entry);
+                } elseif (in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp', 'ico', 'avif'])) {
+                    $imageCount++;
+                } elseif ($ext === 'css') {
+                    $cssCount++;
+                } else {
+                    $otherCount++;
+                }
+            }
+            $zip->close();
+        }
+
+        // Return metadata for the AI
+        $result = "[ZIP ARCHIVE READY FOR IMPORT]\n";
+        $result .= "Storage path: {$storagePath}\n";
+        $result .= "Original filename: {$originalName}\n";
+        $result .= "Archive size: " . number_format($totalSize / 1024, 1) . " KB\n";
+        $result .= "Contents: {$htmlCount} HTML file(s), {$imageCount} image(s), {$cssCount} CSS file(s)\n";
+        if (!empty($htmlFiles)) {
+            $result .= "HTML files: " . implode(', ', array_slice($htmlFiles, 0, 20)) . "\n";
+        }
+        $result .= "\n";
+        $result .= "ACTION REQUIRED: Use the import_zip_site tool to import all pages and images from this archive.\n";
+        $result .= "Call: import_zip_site(storage_path: \"{$storagePath}\")\n";
+        $result .= "The tool will automatically import images to the media library, process each HTML page, and create CMS pages.";
+
+        return $result;
     }
 
     /**

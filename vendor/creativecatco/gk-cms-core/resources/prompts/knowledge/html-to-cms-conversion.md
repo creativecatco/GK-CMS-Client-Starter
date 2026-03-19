@@ -78,13 +78,52 @@ After the import, if images are broken:
 1. Use `upload_image` to download external images into the media library
 2. Use `update_page_fields` to update the image field values with the new local paths
 
-## When NOT to Use This Tool
+## ZIP Archive Import — Multi-Page Sites
+
+When a user uploads a `.zip` file containing multiple HTML pages and images, **use the `import_zip_site` tool**.
+
+The ZIP archive should contain:
+- One or more `.html` / `.htm` files (pages)
+- An `images/` folder (or similar) with image assets
+- Optionally, external `.css` files
+
+### How to Use It
+
+When a user uploads a ZIP, the system saves it and provides the storage path:
+
+```
+[ZIP ARCHIVE READY FOR IMPORT]
+Storage path: /path/to/storage/app/zip-imports/1234567890_site.zip
+Contents: 5 HTML file(s), 23 image(s), 1 CSS file(s)
+```
+
+Call the tool:
+
+```
+import_zip_site(
+    storage_path: "/path/to/storage/app/zip-imports/1234567890_site.zip"
+)
+```
+
+The tool will:
+1. Extract the ZIP to a temp directory
+2. Import ALL images to the CMS media library
+3. Rewrite `<img src>` paths in the HTML to point to the CMS media URLs
+4. Merge any external `.css` files into each page's CSS
+5. Process each HTML file through the same conversion pipeline as `import_html_page`
+6. Extract header/footer from the FIRST HTML file only and ask about importing them
+
+After the import, report the results to the user: how many pages were created, how many images imported, and whether any pages failed.
+
+## When NOT to Use These Tools
 
 - When the user wants a **new page designed from scratch** → use `create_page` instead
 - When the user describes a page concept in words → use `create_page` instead
 - When the user wants to **edit an existing page** → use `update_page_fields`, `update_css`, or `patch_page_template`
 
-Only use `import_html_page` when the user provides an actual HTML file to replicate.
+- Use `import_html_page` when the user provides a single HTML file
+- Use `import_zip_site` when the user provides a ZIP archive with multiple pages and/or images
+- Do NOT use either tool when the user wants a new page designed from scratch or wants to edit an existing page
 
 ## Post-Import: Establishing Site-Wide Styles
 

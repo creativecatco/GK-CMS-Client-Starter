@@ -74,7 +74,7 @@ DESC;
             return $this->error("Page not found with slug: '{$slug}'. Use list_pages to see available pages.");
         }
 
-        // ── Safety check: Global component warning ──
+        // ── Safety check: Global component protection ──
         $isGlobal = $this->isGlobalComponent($page);
         if ($isGlobal) {
             Log::warning('AI is modifying a global component template', [
@@ -82,6 +82,31 @@ DESC;
                 'title' => $page->title,
                 'page_type' => $page->page_type ?? 'unknown',
             ]);
+
+            // Block if the new template contains Blade code that references
+            // variables not available in the component rendering context
+            $dangerousVars = [];
+            if (preg_match_all('/\{\{.*?\$(\w+)/', $templateCode, $varMatches)) {
+                $safeVars = ['fields', 'page', 'loop', 'item', 'key', 'value', 'slot'];
+                foreach ($varMatches[1] as $var) {
+                    if (!in_array($var, $safeVars)) {
+                        $dangerousVars[] = '$' . $var;
+                    }
+                }
+            }
+
+            if (!empty($dangerousVars)) {
+                return $this->error(
+                    "BLOCKED: Template for global component '{$slug}' references undefined variables: " .
+                    implode(', ', array_unique($dangerousVars)) . ".\n\n" .
+                    "Headers and footers only have access to \$fields and \$page. " .
+                    "Using other variables will crash the ENTIRE site.\n\n" .
+                    "Safe alternatives:\n" .
+                    "- Navigation links: use update_menu tool\n" .
+                    "- Text/content: use update_page_fields tool\n" .
+                    "- Colors/styles: use update_css tool"
+                );
+            }
         }
 
         // ── Validation: Check template for common issues ──

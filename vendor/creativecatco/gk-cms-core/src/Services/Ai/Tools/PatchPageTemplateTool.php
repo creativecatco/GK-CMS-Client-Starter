@@ -108,6 +108,38 @@ DESC;
             return $this->error("Page not found with slug: '{$slug}'. Use list_pages to see available pages.");
         }
 
+        // ── Header/Footer protection ──
+        // Headers and footers are global components that affect every page on the site.
+        // Direct template patching is dangerous because:
+        // 1. Injecting incorrect Blade code crashes the ENTIRE site
+        // 2. The dynamic menu system should be modified via update_menu, not template edits
+        // 3. CTA text/URLs should be modified via update_page_fields, not template edits
+        if (in_array($page->page_type, ['header', 'footer'])) {
+            // Check if the replacement contains Blade PHP code
+            $allReplaces = is_array($replace) ? $replace : [$replace];
+            foreach ($allReplaces as $replaceStr) {
+                if (preg_match('/@(foreach|if|php|include|extends|section|yield|component|slot)\b/', $replaceStr) ||
+                    preg_match('/\{\{.*\$(?!fields\[|page->)/', $replaceStr) ||
+                    preg_match('/<\?php/', $replaceStr)) {
+                    return $this->error(
+                        "BLOCKED: Cannot inject Blade/PHP code into a {$page->page_type} template. " .
+                        "Headers and footers are GLOBAL components — a Blade error here crashes the ENTIRE site.\n\n" .
+                        "Instead, use these safe tools:\n" .
+                        "- To change navigation links: use update_menu (location: 'header')\n" .
+                        "- To change CTA text/URL: use update_page_fields (slug: '{$slug}')\n" .
+                        "- To change colors/styles: use update_css (slug: '{$slug}')\n" .
+                        "- To change logo: use update_page_fields with 'logo_image' field"
+                    );
+                }
+            }
+
+            // Also warn about any template patch to headers/footers
+            Log::warning('Template patch attempted on global component', [
+                'page_type' => $page->page_type,
+                'slug' => $slug,
+            ]);
+        }
+
         $template = $page->custom_template ?? '';
         if (empty($template)) {
             $templateName = $page->template ?? 'custom';
