@@ -5,6 +5,13 @@ All notable changes to GKeys CMS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.6.9] - 2026-03-19
+
+### Fixed
+- **ZIP/HTML Import: Livewire Temp File Handling**: On shared hosting (e.g., SiteGround), uploaded files are stored in Livewire temp directories (`storage/framework/cache/temp-files/`) instead of standard PHP temp. The `FileExtractor` now uses a robust `persistUploadedFile()` method with 4 fallback strategies (copy → file_put_contents → stream_copy → rename) to ensure files are persisted to `storage/app/zip-imports/` or `storage/app/html-imports/`
+- **Expanded Path Resolution**: `ImportZipTool` and `ImportHtmlTool` now search Livewire temp directories, `storage/framework/cache/temp-files/`, and `sys_get_temp_dir()` when the provided path doesn't exist. Found temp files are automatically persisted to stable storage before import
+- **Graceful Degradation**: If all persistence methods fail, the tools now fall back to using the source temp path directly rather than returning an error, giving the import the best chance of succeeding
+
 ## [0.8.6.8] - 2026-03-19
 
 ### Fixed

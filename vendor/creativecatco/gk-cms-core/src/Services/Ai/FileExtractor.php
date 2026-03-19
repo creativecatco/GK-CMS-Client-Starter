@@ -153,21 +153,12 @@ class FileExtractor
      */
     protected function extractHtml(UploadedFile $file): string
     {
-        $html = file_get_contents($file->getRealPath());
+        $sourcePath = $file->getRealPath();
+        $html = file_get_contents($sourcePath);
         $originalName = $file->getClientOriginalName();
 
-        // Save the raw HTML file to storage for the ImportHtmlTool to use
-        $filename = 'html-imports/' . time() . '_' . preg_replace('/[^a-zA-Z0-9._-]/', '_', $originalName);
-
-        // Ensure the directory exists
-        $dir = storage_path('app/html-imports');
-        if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
-        }
-
-        // Write directly to filesystem (more reliable than Storage facade on shared hosting)
-        $storagePath = storage_path('app/' . $filename);
-        file_put_contents($storagePath, $html);
+        // Try to persist the HTML file to a stable location for the ImportHtmlTool
+        $storagePath = $this->persistUploadedFile($sourcePath, 'html-imports', $originalName, $html);
 
         // Extract a brief summary for the AI context (NOT the full HTML)
         $title = '';
@@ -356,26 +347,27 @@ class FileExtractor
     protected function extractZip(UploadedFile $file): string
     {
         $originalName = $file->getClientOriginalName();
+        $sourcePath = $file->getRealPath();
 
-        // Save the ZIP file to storage for the ImportZipTool to use
-        $filename = 'zip-imports/' . time() . '_' . preg_replace('/[^a-zA-Z0-9._-]/', '_', $originalName);
+        // Try to persist the ZIP file to a stable location for the ImportZipTool
+        $storagePath = $this->persistUploadedFile($sourcePath, 'zip-imports', $originalName);
 
-        // Ensure the directory exists
-        $dir = storage_path('app/zip-imports');
-        if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
-        }
+        return $this->buildZipMetadata($storagePath, $originalName);
+    }
 
-        $storagePath = storage_path('app/' . $filename);
-        copy($file->getRealPath(), $storagePath);
-
+    /**
+     * Build the metadata string for a ZIP file upload.
+     * Extracted to a separate method so it can be reused when copy fails.
+     */
+    protected function buildZipMetadata(string $storagePath, string $originalName): string
+    {
         // Scan the ZIP contents to provide a summary
         $htmlCount = 0;
         $imageCount = 0;
         $cssCount = 0;
         $otherCount = 0;
         $htmlFiles = [];
-        $totalSize = filesize($storagePath);
+        $totalSize = @filesize($storagePath) ?: 0;
 
         $zip = new \ZipArchive();
         if ($zip->open($storagePath) === true) {
@@ -522,5 +514,101 @@ class FileExtractor
                 'error' => 'Failed to fetch Google Doc: ' . $e->getMessage(),
             ];
         }
+    }
+
+    /**
+     * Persist an uploaded file to a stable storage location.
+     *
+     * PHP's temporary upload files (including Livewire temp files) are cleaned up
+     * after the request ends. We need to copy them to a persistent location so
+     * the AI import tools can access them later.
+     *
+     * If all copy attempts fail, returns the original source path as a fallback.
+     *
+     * @param string $sourcePath The temporary file path (from getRealPath())
+     * @param string $subdir The subdirectory under storage/app/ (e.g., 'zip-imports')
+     * @param string $originalName The original filename from the upload
+     * @param string|null $content Optional: file content already read (avoids re-reading for HTML)
+     * @return string The final persistent path (or source path if all copies failed)
+     */
+    protected function persistUploadedFile(string $sourcePath, string $subdir, string $originalName, ?string $content = null): string
+    {
+        $safeName = preg_replace('/[^a-zA-Z0-9._-]/', '_', $originalName);
+        $filename = $subdir . '/' . time() . '_' . $safeName;
+
+        // Ensure the directory exists
+        $dir = storage_path('app/' . $subdir);
+        if (!is_dir($dir)) {
+            if (!@mkdir($dir, 0755, true)) {
+                Log::warning("File upload: failed to create {$subdir} directory", [
+                    'dir' => $dir,
+                    'source' => $sourcePath,
+                    'error' => error_get_last()['message'] ?? 'unknown',
+                ]);
+                return $sourcePath;
+            }
+        }
+
+        $targetPath = storage_path('app/' . $filename);
+
+        // Strategy 1: copy()
+        if (@copy($sourcePath, $targetPath) && file_exists($targetPath)) {
+            return $targetPath;
+        }
+
+        Log::info("File upload: copy() failed for {$subdir}, trying alternatives", [
+            'source' => $sourcePath,
+            'target' => $targetPath,
+        ]);
+
+        // Strategy 2: file_get_contents + file_put_contents
+        $data = $content ?? @file_get_contents($sourcePath);
+        if ($data !== false && $data !== null) {
+            if (@file_put_contents($targetPath, $data) !== false && file_exists($targetPath)) {
+                return $targetPath;
+            }
+        }
+
+        Log::info("File upload: file_put_contents failed for {$subdir}, trying stream copy", [
+            'source' => $sourcePath,
+            'target' => $targetPath,
+        ]);
+
+        // Strategy 3: Stream copy (handles large files better)
+        $src = @fopen($sourcePath, 'rb');
+        $dst = @fopen($targetPath, 'wb');
+        if ($src && $dst) {
+            $bytesCopied = @stream_copy_to_stream($src, $dst);
+            @fclose($src);
+            @fclose($dst);
+            if ($bytesCopied > 0 && file_exists($targetPath)) {
+                return $targetPath;
+            }
+        } else {
+            if ($src) @fclose($src);
+            if ($dst) @fclose($dst);
+        }
+
+        // Strategy 4: rename/move (last resort — moves the file, may break other references)
+        if (@rename($sourcePath, $targetPath) && file_exists($targetPath)) {
+            Log::info("File upload: used rename() for {$subdir}", [
+                'source' => $sourcePath,
+                'target' => $targetPath,
+            ]);
+            return $targetPath;
+        }
+
+        Log::error("File upload: ALL persistence methods failed for {$subdir}", [
+            'source' => $sourcePath,
+            'target' => $targetPath,
+            'source_exists' => file_exists($sourcePath),
+            'source_readable' => is_readable($sourcePath),
+            'target_dir_writable' => is_writable($dir),
+            'last_error' => error_get_last()['message'] ?? 'unknown',
+        ]);
+
+        // Return source path as fallback — the temp file may still be available
+        // during this request, but will be cleaned up afterward
+        return $sourcePath;
     }
 }
