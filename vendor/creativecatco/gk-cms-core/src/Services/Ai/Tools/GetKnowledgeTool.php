@@ -64,6 +64,14 @@ class GetKnowledgeTool extends AbstractTool
             'description' => 'Plugin scaffolding with create_plugin, directory structure, custom routes/controllers/models, and migration creation.',
             'use_when' => 'User needs custom functionality, custom routes, or anything beyond standard CMS features.',
         ],
+        'html-to-cms-conversion' => [
+            'description' => 'Complete workflow for importing static HTML files as CMS pages using the import_html_page tool. Covers CSS scoping, header/footer extraction, field injection, and post-import editing.',
+            'use_when' => 'User uploads an HTML file to convert into a CMS page, or asks to replicate a static HTML page.',
+        ],
+        'design-library' => [
+            'description' => 'Advanced section patterns and design principles for building high-quality pages — hero sections, feature grids, testimonials, CTAs with production-ready Blade/Tailwind code.',
+            'use_when' => 'Building new pages from scratch and wanting professional, polished designs.',
+        ],
     ];
 
     public function name(): string
@@ -76,7 +84,7 @@ class GetKnowledgeTool extends AbstractTool
         return <<<'DESC'
 Load detailed documentation about a specific CMS topic. Call this BEFORE performing any complex task to ensure you have the correct syntax, formats, and workflows.
 
-Available topics: field-types, template-rules, icon-library, image-workflow, section-bg, css-variables, page-building, website-recreation, debugging, seo-best-practices, repeater-fields, button-fields, content-types, plugin-development
+Available topics: field-types, template-rules, icon-library, image-workflow, section-bg, css-variables, page-building, website-recreation, debugging, seo-best-practices, repeater-fields, button-fields, content-types, plugin-development, html-to-cms-conversion, design-library
 
 Simple tasks (changing text, updating a single field) do NOT need knowledge modules. Only load what you need for the current task.
 DESC;

@@ -344,14 +344,15 @@ class AiOrchestrator
      */
     protected function detectCompletionLoop(string $content, int $loopCount): bool
     {
-        // Only check after at least 2 loops (the LLM has already done some work)
-        if ($loopCount < 2) {
+        // Only check after at least 1 loop (the LLM has already done some work)
+        // Reduced from 2 to 1 to catch self-answering on the very first tool result
+        if ($loopCount < 1) {
             return false;
         }
 
         $content = strtolower($content);
 
-        // Completion phrases that indicate the task is done
+        // Completion phrases that indicate the task is done OR a question was asked to the user
         $completionPhrases = [
             'the changes are now live',
             'has been updated',
@@ -365,9 +366,16 @@ class AiOrchestrator
             'the task is complete',
             'all done',
             'everything is set',
+            // Question patterns — if the AI asks a question and then continues, it's self-answering
+            'would you like me to import',
+            'would you like to import',
+            'would you like me to',
+            'do you want me to',
+            'shall i',
+            'should i',
         ];
 
-        // Restart phrases that indicate a new task is beginning
+        // Restart phrases that indicate a new task is beginning OR self-answering
         $restartPhrases = [
             'of course.',
             'of course!',
@@ -383,6 +391,18 @@ class AiOrchestrator
             'i\'ll begin by',
             'to generate a',
             'to create a',
+            // Self-answering patterns (AI answers its own yes/no question)
+            'yes.',
+            'yes!',
+            'yes,',
+            'no.',
+            'no!',
+            'no,',
+            'i\'ll go ahead',
+            'i will go ahead',
+            'let me go ahead',
+            'proceeding with',
+            'i\'ll proceed',
         ];
 
         $hasCompletion = false;

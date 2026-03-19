@@ -83,6 +83,14 @@ class ListKnowledgeTool extends AbstractTool
                 'description' => 'Plugin scaffolding and custom code patterns.',
                 'use_when' => 'Custom functionality beyond CMS features.',
             ],
+            'html-to-cms-conversion' => [
+                'description' => 'Import static HTML files as CMS pages with CSS scoping and header/footer extraction.',
+                'use_when' => 'User uploads an HTML file to convert into a CMS page.',
+            ],
+            'design-library' => [
+                'description' => 'Advanced section patterns and design principles for professional page designs.',
+                'use_when' => 'Building new pages with polished, production-quality designs.',
+            ],
         ];
 
         $list = [];
