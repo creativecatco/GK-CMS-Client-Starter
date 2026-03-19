@@ -4,6 +4,7 @@ namespace CreativeCatCo\GkCmsCore\Services\Ai;
 
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 /**
  * Extracts text content from uploaded files for AI context.
@@ -157,8 +158,14 @@ class FileExtractor
         $html = file_get_contents($sourcePath);
         $originalName = $file->getClientOriginalName();
 
-        // Try to persist the HTML file to a stable location for the ImportHtmlTool
-        $storagePath = $this->persistUploadedFile($sourcePath, 'html-imports', $originalName, $html);
+        // Generate a short, unique import ID
+        $importId = 'html_' . Str::random(8);
+
+        // Persist the file using the import_id as the filename
+        $storagePath = $this->persistWithImportId($sourcePath, 'html-imports', $importId, $html);
+
+        // Write the manifest entry so the tool can find the file
+        $this->writeManifest('html-imports', $importId, $storagePath, $originalName);
 
         // Extract a brief summary for the AI context (NOT the full HTML)
         $title = '';
@@ -169,11 +176,10 @@ class FileExtractor
         $bodyText = preg_replace('/\s+/', ' ', $bodyText);
         $summary = substr(trim($bodyText), 0, 200);
 
-        // Return ONLY metadata — keep it well under the 10K message limit
-        // NOTE: The storage_path MUST be used EXACTLY as shown below.
+        // Return metadata with import_id (NOT the full path)
         $result = "[HTML FILE READY FOR IMPORT]\n";
         $result .= "\n";
-        $result .= "EXACT storage_path (use this VERBATIM): {$storagePath}\n";
+        $result .= "import_id: {$importId}\n";
         $result .= "\n";
         $result .= "Original filename: {$originalName}\n";
         $result .= "File size: " . strlen($html) . " bytes\n";
@@ -182,9 +188,8 @@ class FileExtractor
         }
         $result .= "Content preview: {$summary}...\n";
         $result .= "\n";
-        $result .= "ACTION REQUIRED: Call import_html_page with the EXACT storage_path shown above.\n";
-        $result .= "CORRECT call: import_html_page(storage_path: \"{$storagePath}\", title: \"...\", slug: \"...\")\n";
-        $result .= "WARNING: Do NOT change or shorten the storage_path. Use the full absolute path exactly as provided.\n";
+        $result .= "ACTION REQUIRED: Call import_html_page with import_id=\"{$importId}\"\n";
+        $result .= "Example: import_html_page(import_id: \"{$importId}\", title: \"...\", slug: \"...\")\n";
         $result .= "The tool will automatically extract all CSS, preserve the HTML structure, and create editable fields.";
 
         return $result;
@@ -349,17 +354,23 @@ class FileExtractor
         $originalName = $file->getClientOriginalName();
         $sourcePath = $file->getRealPath();
 
-        // Try to persist the ZIP file to a stable location for the ImportZipTool
-        $storagePath = $this->persistUploadedFile($sourcePath, 'zip-imports', $originalName);
+        // Generate a short, unique import ID
+        $importId = 'zip_' . Str::random(8);
 
-        return $this->buildZipMetadata($storagePath, $originalName);
+        // Persist the file using the import_id as the filename
+        $storagePath = $this->persistWithImportId($sourcePath, 'zip-imports', $importId);
+
+        // Write the manifest entry so the tool can find the file
+        $this->writeManifest('zip-imports', $importId, $storagePath, $originalName);
+
+        return $this->buildZipMetadata($storagePath, $originalName, $importId);
     }
 
     /**
      * Build the metadata string for a ZIP file upload.
      * Extracted to a separate method so it can be reused when copy fails.
      */
-    protected function buildZipMetadata(string $storagePath, string $originalName): string
+    protected function buildZipMetadata(string $storagePath, string $originalName, string $importId): string
     {
         // Scan the ZIP contents to provide a summary
         $htmlCount = 0;
@@ -392,11 +403,10 @@ class FileExtractor
             $zip->close();
         }
 
-        // Return metadata for the AI
-        // NOTE: The storage_path MUST be used EXACTLY as shown below — do NOT modify or shorten it.
+        // Return metadata with import_id (NOT the full path)
         $result = "[ZIP ARCHIVE READY FOR IMPORT]\n";
         $result .= "\n";
-        $result .= "EXACT storage_path (use this VERBATIM): {$storagePath}\n";
+        $result .= "import_id: {$importId}\n";
         $result .= "\n";
         $result .= "Original filename: {$originalName}\n";
         $result .= "Archive size: " . number_format($totalSize / 1024, 1) . " KB\n";
@@ -405,9 +415,8 @@ class FileExtractor
             $result .= "HTML files: " . implode(', ', array_slice($htmlFiles, 0, 20)) . "\n";
         }
         $result .= "\n";
-        $result .= "ACTION REQUIRED: Call import_zip_site with the EXACT storage_path shown above.\n";
-        $result .= "CORRECT call: import_zip_site(storage_path: \"{$storagePath}\")\n";
-        $result .= "WARNING: Do NOT change or shorten the storage_path. Use the full absolute path exactly as provided.\n";
+        $result .= "ACTION REQUIRED: Call import_zip_site with import_id=\"{$importId}\"\n";
+        $result .= "Example: import_zip_site(import_id: \"{$importId}\")\n";
         $result .= "The tool will automatically import images to the media library, process each HTML page, and create CMS pages.";
 
         return $result;
@@ -517,98 +526,211 @@ class FileExtractor
     }
 
     /**
-     * Persist an uploaded file to a stable storage location.
+     * Persist an uploaded file using a predictable import_id-based filename.
      *
-     * PHP's temporary upload files (including Livewire temp files) are cleaned up
-     * after the request ends. We need to copy them to a persistent location so
-     * the AI import tools can access them later.
+     * The file is saved as: storage/app/{subdir}/{importId}.{ext}
+     * This makes it trivially easy for the import tool to find the file
+     * without relying on the AI to pass the correct path.
      *
-     * If all copy attempts fail, returns the original source path as a fallback.
+     * Uses multiple fallback strategies to handle shared hosting permission issues.
+     * If ALL strategies fail, returns the source path as a last resort.
      *
      * @param string $sourcePath The temporary file path (from getRealPath())
      * @param string $subdir The subdirectory under storage/app/ (e.g., 'zip-imports')
-     * @param string $originalName The original filename from the upload
+     * @param string $importId The unique import ID (e.g., 'zip_a1b2c3d4')
      * @param string|null $content Optional: file content already read (avoids re-reading for HTML)
      * @return string The final persistent path (or source path if all copies failed)
      */
-    protected function persistUploadedFile(string $sourcePath, string $subdir, string $originalName, ?string $content = null): string
+    protected function persistWithImportId(string $sourcePath, string $subdir, string $importId, ?string $content = null): string
     {
-        $safeName = preg_replace('/[^a-zA-Z0-9._-]/', '_', $originalName);
-        $filename = $subdir . '/' . time() . '_' . $safeName;
+        // Determine extension from source path
+        $ext = strtolower(pathinfo($sourcePath, PATHINFO_EXTENSION));
+        if (!$ext || strlen($ext) > 10) {
+            // Temp files often have weird extensions; detect from content
+            $ext = ($subdir === 'zip-imports') ? 'zip' : 'html';
+        }
 
-        // Ensure the directory exists
-        $dir = storage_path('app/' . $subdir);
-        if (!is_dir($dir)) {
-            if (!@mkdir($dir, 0755, true)) {
-                Log::warning("File upload: failed to create {$subdir} directory", [
-                    'dir' => $dir,
-                    'source' => $sourcePath,
-                    'error' => error_get_last()['message'] ?? 'unknown',
-                ]);
-                return $sourcePath;
+        // Try multiple target directories in order of preference
+        $targetDirs = [
+            storage_path('app/' . $subdir),
+            storage_path('app'),
+            storage_path('framework/cache'),
+            sys_get_temp_dir() . '/gk-cms-imports',
+        ];
+
+        foreach ($targetDirs as $dir) {
+            // Ensure directory exists
+            if (!is_dir($dir)) {
+                if (!@mkdir($dir, 0755, true)) {
+                    continue;
+                }
+            }
+
+            $targetPath = $dir . '/' . $importId . '.' . $ext;
+
+            // Strategy 1: copy()
+            if (@copy($sourcePath, $targetPath) && file_exists($targetPath)) {
+                Log::info("File persist: saved via copy()", ['target' => $targetPath]);
+                return $targetPath;
+            }
+
+            // Strategy 2: file_get_contents + file_put_contents
+            $data = $content ?? @file_get_contents($sourcePath);
+            if ($data !== false && $data !== null) {
+                if (@file_put_contents($targetPath, $data) !== false && file_exists($targetPath)) {
+                    Log::info("File persist: saved via file_put_contents()", ['target' => $targetPath]);
+                    return $targetPath;
+                }
+            }
+
+            // Strategy 3: Stream copy
+            $src = @fopen($sourcePath, 'rb');
+            $dst = @fopen($targetPath, 'wb');
+            if ($src && $dst) {
+                $bytesCopied = @stream_copy_to_stream($src, $dst);
+                @fclose($src);
+                @fclose($dst);
+                if ($bytesCopied > 0 && file_exists($targetPath)) {
+                    Log::info("File persist: saved via stream_copy()", ['target' => $targetPath]);
+                    return $targetPath;
+                }
+            } else {
+                if ($src) @fclose($src);
+                if ($dst) @fclose($dst);
             }
         }
 
-        $targetPath = storage_path('app/' . $filename);
-
-        // Strategy 1: copy()
-        if (@copy($sourcePath, $targetPath) && file_exists($targetPath)) {
-            return $targetPath;
-        }
-
-        Log::info("File upload: copy() failed for {$subdir}, trying alternatives", [
-            'source' => $sourcePath,
-            'target' => $targetPath,
-        ]);
-
-        // Strategy 2: file_get_contents + file_put_contents
-        $data = $content ?? @file_get_contents($sourcePath);
-        if ($data !== false && $data !== null) {
-            if (@file_put_contents($targetPath, $data) !== false && file_exists($targetPath)) {
+        // Strategy 4: rename/move as absolute last resort
+        $primaryDir = $targetDirs[0];
+        if (is_dir($primaryDir) || @mkdir($primaryDir, 0755, true)) {
+            $targetPath = $primaryDir . '/' . $importId . '.' . $ext;
+            if (@rename($sourcePath, $targetPath) && file_exists($targetPath)) {
+                Log::info("File persist: saved via rename()", ['target' => $targetPath]);
                 return $targetPath;
             }
         }
 
-        Log::info("File upload: file_put_contents failed for {$subdir}, trying stream copy", [
+        Log::error("File persist: ALL methods failed", [
             'source' => $sourcePath,
-            'target' => $targetPath,
-        ]);
-
-        // Strategy 3: Stream copy (handles large files better)
-        $src = @fopen($sourcePath, 'rb');
-        $dst = @fopen($targetPath, 'wb');
-        if ($src && $dst) {
-            $bytesCopied = @stream_copy_to_stream($src, $dst);
-            @fclose($src);
-            @fclose($dst);
-            if ($bytesCopied > 0 && file_exists($targetPath)) {
-                return $targetPath;
-            }
-        } else {
-            if ($src) @fclose($src);
-            if ($dst) @fclose($dst);
-        }
-
-        // Strategy 4: rename/move (last resort — moves the file, may break other references)
-        if (@rename($sourcePath, $targetPath) && file_exists($targetPath)) {
-            Log::info("File upload: used rename() for {$subdir}", [
-                'source' => $sourcePath,
-                'target' => $targetPath,
-            ]);
-            return $targetPath;
-        }
-
-        Log::error("File upload: ALL persistence methods failed for {$subdir}", [
-            'source' => $sourcePath,
-            'target' => $targetPath,
+            'import_id' => $importId,
             'source_exists' => file_exists($sourcePath),
             'source_readable' => is_readable($sourcePath),
-            'target_dir_writable' => is_writable($dir),
-            'last_error' => error_get_last()['message'] ?? 'unknown',
+            'tried_dirs' => $targetDirs,
         ]);
 
-        // Return source path as fallback — the temp file may still be available
-        // during this request, but will be cleaned up afterward
         return $sourcePath;
+    }
+
+    /**
+     * Write an import manifest entry mapping import_id to file path.
+     *
+     * The manifest is a JSON file stored at storage/app/{subdir}/manifest.json.
+     * It maps import IDs to their actual file paths, providing a reliable
+     * lookup mechanism for the import tools.
+     */
+    protected function writeManifest(string $subdir, string $importId, string $filePath, string $originalName): void
+    {
+        // Try multiple locations for the manifest
+        $manifestPaths = [
+            storage_path('app/' . $subdir . '/manifest.json'),
+            storage_path('app/manifest_' . str_replace('/', '_', $subdir) . '.json'),
+            storage_path('framework/cache/manifest_' . str_replace('/', '_', $subdir) . '.json'),
+        ];
+
+        foreach ($manifestPaths as $manifestPath) {
+            $dir = dirname($manifestPath);
+            if (!is_dir($dir)) {
+                if (!@mkdir($dir, 0755, true)) {
+                    continue;
+                }
+            }
+
+            // Read existing manifest
+            $manifest = [];
+            if (file_exists($manifestPath)) {
+                $json = @file_get_contents($manifestPath);
+                if ($json) {
+                    $manifest = json_decode($json, true) ?: [];
+                }
+            }
+
+            // Add/update entry
+            $manifest[$importId] = [
+                'path' => $filePath,
+                'original_name' => $originalName,
+                'created_at' => time(),
+            ];
+
+            // Clean up old entries (older than 24 hours)
+            $manifest = array_filter($manifest, fn($entry) => (time() - ($entry['created_at'] ?? 0)) < 86400);
+
+            // Write manifest
+            if (@file_put_contents($manifestPath, json_encode($manifest, JSON_PRETTY_PRINT)) !== false) {
+                Log::info("Manifest written", ['path' => $manifestPath, 'import_id' => $importId]);
+                return;
+            }
+        }
+
+        Log::warning("Failed to write manifest for {$importId}", [
+            'tried' => $manifestPaths,
+        ]);
+    }
+
+    /**
+     * Resolve an import_id to a file path.
+     * Used by import tools to find the uploaded file.
+     *
+     * @return string|null The resolved file path, or null if not found
+     */
+    public static function resolveImportId(string $importId, string $subdir): ?string
+    {
+        // Strategy 1: Check manifest files
+        $manifestPaths = [
+            storage_path('app/' . $subdir . '/manifest.json'),
+            storage_path('app/manifest_' . str_replace('/', '_', $subdir) . '.json'),
+            storage_path('framework/cache/manifest_' . str_replace('/', '_', $subdir) . '.json'),
+        ];
+
+        foreach ($manifestPaths as $manifestPath) {
+            if (!file_exists($manifestPath)) continue;
+            $json = @file_get_contents($manifestPath);
+            if (!$json) continue;
+            $manifest = json_decode($json, true) ?: [];
+            if (isset($manifest[$importId]['path'])) {
+                $path = $manifest[$importId]['path'];
+                if (file_exists($path)) {
+                    return $path;
+                }
+            }
+        }
+
+        // Strategy 2: Check predictable file paths
+        $extensions = ($subdir === 'zip-imports') ? ['zip'] : ['html', 'htm', 'tmp'];
+        $searchDirs = [
+            storage_path('app/' . $subdir),
+            storage_path('app'),
+            storage_path('framework/cache'),
+            sys_get_temp_dir() . '/gk-cms-imports',
+        ];
+
+        foreach ($searchDirs as $dir) {
+            foreach ($extensions as $ext) {
+                $candidate = $dir . '/' . $importId . '.' . $ext;
+                if (file_exists($candidate)) {
+                    return $candidate;
+                }
+            }
+        }
+
+        // Strategy 3: Search by filename pattern (import_id anywhere in name)
+        foreach ($searchDirs as $dir) {
+            if (!is_dir($dir)) continue;
+            $files = glob($dir . '/*' . $importId . '*') ?: [];
+            if (!empty($files)) {
+                return $files[0];
+            }
+        }
+
+        return null;
     }
 }

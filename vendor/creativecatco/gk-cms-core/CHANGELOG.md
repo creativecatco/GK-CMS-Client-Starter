@@ -5,6 +5,21 @@ All notable changes to GKeys CMS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.7.0] - 2026-03-19
+
+### Changed
+- **BREAKING: import_id replaces storage_path for ZIP/HTML imports** — The `import_zip_site` and `import_html_page` tools now accept an `import_id` parameter (e.g., `zip_a1b2c3d4`) instead of a full filesystem path. This eliminates the root cause of repeated "file not found" errors where the AI hallucinated or mangled the storage path.
+
+### Fixed
+- **ZIP/HTML Import Architecture Overhaul**: Completely redesigned the file upload → import pipeline:
+  - `FileExtractor` now generates a short, unique `import_id` for each uploaded file
+  - Files are saved with predictable names (`{import_id}.zip`) in `storage/app/zip-imports/`
+  - A manifest file (`manifest.json`) maps import IDs to actual file paths
+  - `resolveImportId()` provides 3-layer lookup: manifest → predictable path → glob search
+  - The AI only needs to copy a short 12-character string, not a full absolute path
+- **Multi-directory persistence**: `persistWithImportId()` tries 4 different directories (zip-imports, app, framework/cache, sys_temp) × 3 copy strategies (copy, file_put_contents, stream_copy) = 12 attempts before giving up
+- **Backward compatible**: `storage_path` parameter still works as a deprecated fallback
+
 ## [0.8.6.9] - 2026-03-19
 
 ### Fixed
