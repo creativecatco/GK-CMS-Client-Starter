@@ -122,6 +122,7 @@ class ToolRegistry
         $registry->register(new PatchPageTemplateTool());
         $registry->register(new UpdatePageFieldsTool());
         $registry->register(new DeletePageTool());
+        $registry->register(new ImportHtmlTool());
 
         // Settings & theme tools
         $registry->register(new UpdateThemeTool());

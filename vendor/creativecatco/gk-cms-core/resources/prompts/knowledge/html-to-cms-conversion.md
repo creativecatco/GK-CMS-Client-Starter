@@ -1,70 +1,78 @@
-# High-Fidelity HTML to CMS Conversion
+# HTML File Import — Converting Static HTML to CMS Pages
 
-## 1. Philosophy: Preserve First, Adapt Minimally
+## The Golden Rule
 
-The primary goal of this workflow is to create a **high-fidelity, 1:1 replication** of a provided static HTML file within the CMS. Unlike other workflows, you should NOT attempt to adapt, simplify, or "Tailwind-ify" the design. The objective is to preserve the original HTML structure and CSS exactly as provided, only adding the necessary CMS hooks to make the content editable.
+When a user uploads an HTML file and asks you to replicate it as a CMS page, **ALWAYS use the `import_html_page` tool**. Do NOT attempt to manually recreate the HTML by reading it and calling `create_page` or `update_page_template` — that approach is unreliable and will produce pages that look nothing like the original.
 
-This process is deterministic and must be followed precisely to ensure reliability.
+The `import_html_page` tool is a dedicated, programmatic converter that:
+1. Extracts ALL CSS from `<style>` tags and saves it as page-specific CSS
+2. Extracts the `<body>` HTML and preserves the exact structure and class names
+3. Auto-injects `data-field` attributes on editable elements (headings, paragraphs, buttons, images)
+4. Creates the page with all fields populated from the original content
+5. Handles HTML entity decoding automatically (e.g., `&mdash;` → `—`, `&#128273;` → `🔑`)
 
-## 2. The Step-by-Step Conversion Workflow
+This produces a **pixel-perfect** replica of the original HTML, with full CMS editability.
 
-### Step 1: Analyze and Extract Assets
+## How to Use It
 
-1.  Read the full source HTML file provided by the user.
-2.  Using regex, extract the content of all `<style>` blocks.
-3.  Using regex, extract all `<link rel="stylesheet">` URLs.
-4.  For each linked stylesheet, read the content of the CSS file.
-5.  Combine all extracted CSS into a single string. This is the **Total CSS**.
-6.  Using regex, extract all `<img>` tags and their `src` attributes. Keep a list of these image URLs.
+### Step 1: Identify the Storage Path
 
-### Step 2: Classify CSS into Site-Wide vs. Page-Specific
+When a user uploads an HTML file, the system automatically saves it to disk and provides the storage path in the file context. Look for:
 
-This is the most critical analysis step. You must programmatically loop through the **Total CSS** and separate rules into two buckets.
+```
+[HTML FILE SAVED FOR IMPORT]
+Storage path: /path/to/storage/app/html-imports/1234567890_filename.html
+```
 
-| CSS Type | Heuristics for Identification |
-| :--- | :--- |
-| **Site-Wide CSS** | - Rules targeting `:root` or `body` (e.g., `font-family`, `color`, `background-color`).<br>- Generic HTML tag styles (e.g., `a`, `p`, `h1`, `h2`).<br>- Font-face definitions (`@font-face`).<br>- Definitions of CSS variables (`--variable-name: value;`).<br>- Widely used utility classes that appear frequently in the HTML body. |
-| **Page-Specific CSS** | - Rules targeting specific IDs (e.g., `#hero-section`, `#contact-form`).<br>- Complex component styles that are clearly tied to a single structural element.<br>- Keyframe animations (`@keyframes`).<br>- Styles for pseudo-elements (`::before`, `::after`) on specific components. |
+### Step 2: Call the Tool
 
-### Step 3: Establish the Site-Wide Design System
+```
+import_html_page(
+    storage_path: "/path/to/storage/app/html-imports/1234567890_filename.html",
+    title: "Page Title",
+    slug: "page-slug"
+)
+```
 
-1.  **Extract Colors & Fonts:** From the **Site-Wide CSS**, identify the primary brand colors and the main heading/body fonts.
-2.  **Update Theme:** Call `update_theme` to set the core CSS variables (`theme_primary_color`, `theme_font_heading`, etc.) based on your analysis. This ensures that new pages created later will have a consistent base.
-3.  **Set Global CSS:** Take the remaining **Site-Wide CSS** rules (generic tag styles, utilities, etc.) and save them using `update_css(scope: 'global', css: '...')`. This makes the core styles available to every page on the site.
+That's it. One tool call. The tool handles everything else.
 
-### Step 4: Migrate Images
+### Step 3: Verify and Report
 
-1.  Iterate through the list of image URLs collected in Step 1.
-2.  For each URL, call `upload_image(url: '...')` to download it into the CMS media library.
-3.  Create a key-value map that links the original image URL to the new, storage-relative path returned by the tool (e.g., `{'https://example.com/img/hero.png': 'media/uploads/hero.png'}`).
+After the import succeeds:
+1. Tell the user the page was created and provide the URL (e.g., `/page-slug`)
+2. Ask them to review it and let you know if any adjustments are needed
+3. If they want text changes, use `update_page_fields` to modify specific field values
+4. If they want style changes, use `update_css` with `scope: page` to adjust the page CSS
 
-### Step 5: Convert HTML to a Blade Template
+## Handling External Resources
 
-1.  Start with the full original HTML source code.
-2.  **Strip Wrappers:** Remove the `<html>`, `<head>`, and `<body>` tags, keeping only the content that was inside the `<body>`.
-3.  **Replace Image Paths:** Search through the HTML content and replace every original image `src` with its corresponding new path from the map created in Step 4.
-4.  **Identify & Hook Editable Content:**
-    *   For every piece of text (headings, paragraphs, list items) that should be editable, add a `data-field="unique_field_key"` and `data-field-type="text_or_textarea"` attribute to its containing element.
-    *   For every `<img>` tag, add `data-field="image_field_key"` and `data-field-type="image"`.
-    *   For buttons or links that should be editable, add `data-field="button_key"` and `data-field-type="button"`.
-5.  **Extract Field Values & Replace with Blade:**
-    *   As you identify editable content, extract the static value (the text, the image path, the button text/link) into a JSON object for the `fields` parameter.
-    *   **CRITICAL:** Before adding text to the `fields` object, you **MUST** decode any HTML entities to their actual Unicode characters (e.g., `&mdash;` becomes `—`, `&#128273;` becomes `🔑`).
-    *   In the template, replace the static content you just extracted with the appropriate Blade directive (e.g., `{{ $fields['unique_field_key'] }}`). Use `{!! !!}` for any fields that contain HTML.
+The import tool preserves all CSS and HTML structure, but it does NOT automatically download external resources like:
+- Images hosted on external URLs (e.g., `https://example.com/img/hero.jpg`)
+- Linked stylesheets (`<link rel="stylesheet" href="...">`)
+- External fonts (Google Fonts, etc.)
 
-### Step 6: Create the Page & Apply Styles
+After the import, if images are broken:
+1. Use `upload_image` to download external images into the media library
+2. Use `update_page_fields` to update the image field values with the new local paths
 
-1.  Call `create_page` with the following parameters:
-    *   `title`: A suitable title for the page.
-    *   `template_code`: The full Blade template string you constructed in Step 5.
-    *   `fields`: The JSON object containing all the extracted and decoded field values.
-2.  Immediately after the page is created, call `update_css` with:
-    *   `scope: 'page'`
-    *   `slug`: The slug of the page you just created.
-    *   `css`: The **Page-Specific CSS** you identified in Step 2.
+If external stylesheets are needed:
+1. The user may need to provide those CSS files separately
+2. Or you can add `<link>` tags to the template via `update_page_template`
 
-### Step 7: Verify
+## When NOT to Use This Tool
 
-1.  Call `render_page` (or `render_page_visually` if available) on the newly created page.
-2.  Inspect the output to ensure the page renders without errors and that the content appears correctly.
-3.  Inform the user that the process is complete and ask them to review the live page.
+- When the user wants a **new page designed from scratch** → use `create_page` instead
+- When the user describes a page concept in words → use `create_page` instead
+- When the user wants to **edit an existing page** → use `update_page_fields`, `update_css`, or `patch_page_template`
+
+Only use `import_html_page` when the user provides an actual HTML file to replicate.
+
+## Post-Import: Establishing Site-Wide Styles
+
+After a successful import, if the user wants to use the imported page's design as the basis for the whole site:
+
+1. **Extract brand colors** from the page CSS and update the theme via `update_theme`
+2. **Extract common styles** (fonts, base element styles, utility classes) and save them as global CSS via `update_css(scope: 'global')`
+3. This way, new pages built later will automatically inherit the same design language
+
+Only do this if the user explicitly asks to apply the styles site-wide. Do not automatically modify global styles during an import.

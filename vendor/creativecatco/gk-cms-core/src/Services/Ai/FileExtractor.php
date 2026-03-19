@@ -141,28 +141,31 @@ class FileExtractor
     }
 
     /**
-     * Extract from HTML files — strip tags but keep structure.
+     * Extract from HTML files — preserve raw HTML for CMS import.
+     *
+     * HTML files are special: we keep the FULL raw content (CSS, structure, classes)
+     * because the ImportHtmlTool needs it to faithfully replicate the page.
+     * We also save the raw file to storage so the import tool can access it directly.
      */
     protected function extractHtml(UploadedFile $file): string
     {
         $html = file_get_contents($file->getRealPath());
 
-        // Remove script and style tags completely
-        $html = preg_replace('/<script\b[^>]*>.*?<\/script>/is', '', $html);
-        $html = preg_replace('/<style\b[^>]*>.*?<\/style>/is', '', $html);
+        // Save the raw HTML file to storage for the ImportHtmlTool to use
+        $filename = 'html-imports/' . time() . '_' . preg_replace('/[^a-zA-Z0-9._-]/', '_', $file->getClientOriginalName());
+        \Illuminate\Support\Facades\Storage::disk('local')->put($filename, $html);
 
-        // Convert common block elements to newlines
-        $html = preg_replace('/<\/(p|div|h[1-6]|li|tr|br|hr)[^>]*>/i', "\n", $html);
-        $html = preg_replace('/<br\s*\/?>/i', "\n", $html);
+        // Return the raw HTML so the AI can see the full structure
+        // Prefix with metadata so the AI knows the file is available for import
+        $storagePath = storage_path('app/' . $filename);
+        $prefix = "[HTML FILE SAVED FOR IMPORT]\n";
+        $prefix .= "Storage path: {$storagePath}\n";
+        $prefix .= "Original filename: {$file->getClientOriginalName()}\n";
+        $prefix .= "Use the import_html_page tool with this storage_path to convert this HTML file into a CMS page.\n";
+        $prefix .= "The import tool will automatically extract CSS, convert the HTML structure, and create editable fields.\n";
+        $prefix .= "---\n\n";
 
-        // Strip remaining tags
-        $text = strip_tags($html);
-
-        // Clean up whitespace
-        $text = preg_replace('/[ \t]+/', ' ', $text);
-        $text = preg_replace('/\n{3,}/', "\n\n", $text);
-
-        return trim($text);
+        return $prefix . $html;
     }
 
     /**
