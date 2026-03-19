@@ -3,6 +3,7 @@
 namespace CreativeCatCo\GkCmsCore\Services;
 
 use CreativeCatCo\GkCmsCore\Models\Setting;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -713,10 +714,53 @@ BASH;
     }
 
     /**
-     * Get the changelog from the package.
+     * Get the changelog — tries to fetch the latest from GitHub first,
+     * falls back to the local CHANGELOG.md shipped with the package.
+     * Caches the remote changelog for 24 hours.
      */
     public function getChangelog(): string
     {
+        // Try to get the latest changelog from GitHub (cached for 24h)
+        $cached = Cache::get('cms_changelog_remote');
+        if ($cached) {
+            return $cached;
+        }
+
+        try {
+            $repo = $this->channel === 'composer'
+                ? 'creativecatco/gk-cms-core'
+                : config('cms.release_repo', 'creativecatco/GK-CMS-Client-Starter');
+
+            // For the release channel, always check the core repo for the changelog
+            $changelogRepo = 'creativecatco/gk-cms-core';
+
+            $headers = [
+                'Accept' => 'application/vnd.github.v3.raw',
+                'User-Agent' => 'GKeys-CMS-Updater/1.0',
+            ];
+
+            $token = $this->getGithubToken();
+            if ($token) {
+                $headers['Authorization'] = 'Bearer ' . $token;
+            }
+
+            $response = \Illuminate\Support\Facades\Http::withHeaders($headers)
+                ->timeout(10)
+                ->get("https://api.github.com/repos/{$changelogRepo}/contents/CHANGELOG.md");
+
+            if ($response->successful()) {
+                $content = $response->body();
+                if (!empty($content) && str_contains($content, '# Changelog')) {
+                    Cache::put('cms_changelog_remote', $content, 86400);
+                    return $content;
+                }
+            }
+        } catch (\Exception $e) {
+            // Silently fall back to local
+            \Illuminate\Support\Facades\Log::debug('CMS: Could not fetch remote changelog', ['error' => $e->getMessage()]);
+        }
+
+        // Fall back to local CHANGELOG.md
         $changelogPath = dirname(__DIR__) . '/../CHANGELOG.md';
         if (file_exists($changelogPath)) {
             return file_get_contents($changelogPath);
