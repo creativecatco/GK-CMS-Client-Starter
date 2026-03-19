@@ -17,6 +17,8 @@ class Page extends Model
         'title',
         'slug',
         'page_type',
+        'display_scope',
+        'display_on',
         'template',
         'content',
         'blocks',
@@ -39,6 +41,7 @@ class Page extends Model
         'fields' => 'array',
         'field_definitions' => 'array',
         'show_in_nav' => 'boolean',
+        'display_on' => 'array',
     ];
 
     /*

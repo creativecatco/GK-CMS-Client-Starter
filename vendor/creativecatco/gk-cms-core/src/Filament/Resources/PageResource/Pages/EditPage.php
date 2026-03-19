@@ -177,6 +177,27 @@ class EditPage extends EditRecord
      * After saving, auto-discover field definitions from the custom template
      * if the template is 'custom' and field_definitions haven't been manually set.
      */
+    /**
+     * Before saving, merge display_on_pages / display_on_types into the display_on column.
+     */
+    protected function mutateFormDataBeforeSave(array $data): array
+    {
+        $scope = $data['display_scope'] ?? 'all';
+
+        if ($scope === 'specific_pages' && isset($data['display_on_pages'])) {
+            $data['display_on'] = array_map('intval', $data['display_on_pages']);
+        } elseif ($scope === 'specific_types' && isset($data['display_on_types'])) {
+            $data['display_on'] = $data['display_on_types'];
+        } else {
+            $data['display_on'] = null;
+        }
+
+        // Remove the virtual fields so Filament doesn't try to save them
+        unset($data['display_on_pages'], $data['display_on_types']);
+
+        return $data;
+    }
+
     protected function afterSave(): void
     {
         $record = $this->record;

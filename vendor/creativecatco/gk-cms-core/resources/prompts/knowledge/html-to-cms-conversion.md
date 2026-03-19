@@ -5,11 +5,12 @@
 When a user uploads an HTML file and asks you to replicate it as a CMS page, **ALWAYS use the `import_html_page` tool**. Do NOT attempt to manually recreate the HTML by reading it and calling `create_page` or `update_page_template` — that approach is unreliable and will produce pages that look nothing like the original.
 
 The `import_html_page` tool is a dedicated, programmatic converter that:
-1. Extracts ALL CSS from `<style>` tags and saves it as page-specific CSS
-2. Extracts the `<body>` HTML and preserves the exact structure and class names
-3. Auto-injects `data-field` attributes on editable elements (headings, paragraphs, buttons, images)
-4. Creates the page with all fields populated from the original content
-5. Handles HTML entity decoding automatically (e.g., `&mdash;` → `—`, `&#128273;` → `🔑`)
+1. Extracts ALL CSS from `<style>` tags, scopes it to prevent conflicts with the CMS layout
+2. Detects and **always strips** `<header>` and `<footer>` tags from the page body
+3. Extracts the main body HTML and preserves the exact structure and class names
+4. Auto-injects `data-field` attributes on editable elements (headings, paragraphs, buttons, images)
+5. Creates the page with all fields populated from the original content
+6. Handles HTML entity decoding automatically (e.g., `&mdash;` → `—`, `&#128273;` → `🔑`)
 
 This produces a **pixel-perfect** replica of the original HTML, with full CMS editability.
 
@@ -24,7 +25,7 @@ When a user uploads an HTML file, the system automatically saves it to disk and 
 Storage path: /path/to/storage/app/html-imports/1234567890_filename.html
 ```
 
-### Step 2: Call the Tool
+### Step 2: Call the Tool (Page Import)
 
 ```
 import_html_page(
@@ -36,7 +37,29 @@ import_html_page(
 
 That's it. One tool call. The tool handles everything else.
 
-### Step 3: Verify and Report
+**IMPORTANT:** Do NOT set `import_header` or `import_footer` to true on this first call. The tool will always strip the header/footer from the page body regardless, and will report whether they were found.
+
+### Step 3: Ask About Header/Footer
+
+After the import succeeds, the tool will report whether the HTML contained a `<header>` and/or `<footer>`. You **MUST** then ask the user:
+
+> "The page has been created successfully! I noticed the HTML file also contained a [header/footer/header and footer]. Would you like me to import [it/them] as your site-wide header and footer? (If you've already set up a header/footer, or plan to import more pages with the same header, you can skip this.)"
+
+### Step 4: Import Header/Footer (If User Says Yes)
+
+If the user confirms, call the tool again with **only** the storage path and the import flags:
+
+```
+import_html_page(
+    storage_path: "/path/to/storage/app/html-imports/1234567890_filename.html",
+    import_header: true,
+    import_footer: true
+)
+```
+
+Note: No `title` or `slug` needed — this mode only creates/updates the header and footer CMS records. If a header or footer already exists, it will be **replaced** with the new one.
+
+### Step 5: Verify and Report
 
 After the import succeeds:
 1. Tell the user the page was created and provide the URL (e.g., `/page-slug`)
@@ -48,16 +71,12 @@ After the import succeeds:
 
 The import tool preserves all CSS and HTML structure, but it does NOT automatically download external resources like:
 - Images hosted on external URLs (e.g., `https://example.com/img/hero.jpg`)
-- Linked stylesheets (`<link rel="stylesheet" href="...">`)
-- External fonts (Google Fonts, etc.)
+- Linked stylesheets (`<link rel="stylesheet" href="...">`), except Google Fonts which are preserved
+- External fonts beyond Google Fonts
 
 After the import, if images are broken:
 1. Use `upload_image` to download external images into the media library
 2. Use `update_page_fields` to update the image field values with the new local paths
-
-If external stylesheets are needed:
-1. The user may need to provide those CSS files separately
-2. Or you can add `<link>` tags to the template via `update_page_template`
 
 ## When NOT to Use This Tool
 

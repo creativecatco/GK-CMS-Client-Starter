@@ -11,6 +11,26 @@ class CreatePage extends CreateRecord
     protected static string $resource = PageResource::class;
 
     /**
+     * Before creating, merge display_on_pages / display_on_types into the display_on column.
+     */
+    protected function mutateFormDataBeforeCreate(array $data): array
+    {
+        $scope = $data['display_scope'] ?? 'all';
+
+        if ($scope === 'specific_pages' && isset($data['display_on_pages'])) {
+            $data['display_on'] = array_map('intval', $data['display_on_pages']);
+        } elseif ($scope === 'specific_types' && isset($data['display_on_types'])) {
+            $data['display_on'] = $data['display_on_types'];
+        } else {
+            $data['display_on'] = null;
+        }
+
+        unset($data['display_on_pages'], $data['display_on_types']);
+
+        return $data;
+    }
+
+    /**
      * After creating, auto-discover field definitions from the custom template.
      */
     protected function afterCreate(): void

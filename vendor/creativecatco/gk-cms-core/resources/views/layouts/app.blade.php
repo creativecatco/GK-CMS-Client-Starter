@@ -210,9 +210,44 @@
         @yield('header')
     @else
         @php
-            $headerPage = \CreativeCatCo\GkCmsCore\Models\Page::where('page_type', 'header')
+            // Find the best matching header for this page
+            $__allHeaders = \CreativeCatCo\GkCmsCore\Models\Page::where('page_type', 'header')
                 ->where('status', 'published')
-                ->first();
+                ->get();
+            $headerPage = null;
+            $__currentPage = $page ?? null;
+            $__currentPageType = $__currentPage->page_type ?? 'page';
+            $__currentPageId = $__currentPage->id ?? null;
+
+            // Priority: specific_pages > specific_types > all
+            foreach ($__allHeaders as $__h) {
+                $scope = $__h->display_scope ?? 'all';
+                $displayOn = $__h->display_on ?? [];
+
+                if ($scope === 'specific_pages' && $__currentPageId && in_array($__currentPageId, $displayOn)) {
+                    $headerPage = $__h;
+                    break; // Exact page match wins
+                }
+            }
+            if (!$headerPage) {
+                foreach ($__allHeaders as $__h) {
+                    $scope = $__h->display_scope ?? 'all';
+                    $displayOn = $__h->display_on ?? [];
+
+                    if ($scope === 'specific_types' && in_array($__currentPageType, $displayOn)) {
+                        $headerPage = $__h;
+                        break; // Page type match is second priority
+                    }
+                }
+            }
+            if (!$headerPage) {
+                // Fall back to the 'all' scope header (or any header if no scope is set)
+                $headerPage = $__allHeaders->first(fn($__h) => ($__h->display_scope ?? 'all') === 'all');
+            }
+            if (!$headerPage) {
+                // Ultimate fallback: any published header
+                $headerPage = $__allHeaders->first();
+            }
         @endphp
         @if($headerPage && $headerPage->template === 'custom' && !empty($headerPage->custom_template))
             {{-- Custom template: render the stored HTML/Blade directly with error protection --}}
@@ -256,9 +291,42 @@
         @yield('footer')
     @else
         @php
-            $footerPage = \CreativeCatCo\GkCmsCore\Models\Page::where('page_type', 'footer')
+            // Find the best matching footer for this page
+            $__allFooters = \CreativeCatCo\GkCmsCore\Models\Page::where('page_type', 'footer')
                 ->where('status', 'published')
-                ->first();
+                ->get();
+            $footerPage = null;
+            $__currentPage = $__currentPage ?? ($page ?? null);
+            $__currentPageType = $__currentPage->page_type ?? 'page';
+            $__currentPageId = $__currentPage->id ?? null;
+
+            // Priority: specific_pages > specific_types > all
+            foreach ($__allFooters as $__f) {
+                $scope = $__f->display_scope ?? 'all';
+                $displayOn = $__f->display_on ?? [];
+
+                if ($scope === 'specific_pages' && $__currentPageId && in_array($__currentPageId, $displayOn)) {
+                    $footerPage = $__f;
+                    break;
+                }
+            }
+            if (!$footerPage) {
+                foreach ($__allFooters as $__f) {
+                    $scope = $__f->display_scope ?? 'all';
+                    $displayOn = $__f->display_on ?? [];
+
+                    if ($scope === 'specific_types' && in_array($__currentPageType, $displayOn)) {
+                        $footerPage = $__f;
+                        break;
+                    }
+                }
+            }
+            if (!$footerPage) {
+                $footerPage = $__allFooters->first(fn($__f) => ($__f->display_scope ?? 'all') === 'all');
+            }
+            if (!$footerPage) {
+                $footerPage = $__allFooters->first();
+            }
         @endphp
         @if($footerPage && $footerPage->template === 'custom' && !empty($footerPage->custom_template))
             {{-- Custom template: render the stored HTML/Blade directly with error protection --}}
