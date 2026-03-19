@@ -171,6 +171,24 @@
         <style id="gk-global-css">{!! $globalCss !!}</style>
     @endif
 
+    {{-- Header/Footer component CSS --}}
+    @php
+        $__headerPageCss = \CreativeCatCo\GkCmsCore\Models\Page::where('page_type', 'header')
+            ->where('status', 'published')
+            ->whereNotNull('custom_css')
+            ->value('custom_css');
+        $__footerPageCss = \CreativeCatCo\GkCmsCore\Models\Page::where('page_type', 'footer')
+            ->where('status', 'published')
+            ->whereNotNull('custom_css')
+            ->value('custom_css');
+    @endphp
+    @if(!empty($__headerPageCss))
+        <style id="gk-header-css">{!! $__headerPageCss !!}</style>
+    @endif
+    @if(!empty($__footerPageCss))
+        <style id="gk-footer-css">{!! $__footerPageCss !!}</style>
+    @endif
+
     {{-- Page-specific CSS --}}
     @if(!empty($page) && !empty($page->custom_css))
         <style id="gk-page-css">{!! $page->custom_css !!}</style>
