@@ -158,11 +158,45 @@ class FileExtractor
         $html = file_get_contents($sourcePath);
         $originalName = $file->getClientOriginalName();
 
+        if ($html === false) {
+            Log::error('extractHtml: cannot read uploaded file', [
+                'source' => $sourcePath,
+                'exists' => file_exists($sourcePath),
+            ]);
+            return "[HTML UPLOAD FAILED]\nCould not read the uploaded file. Please try uploading again.";
+        }
+
+        Log::info('extractHtml: file read into memory', [
+            'source' => $sourcePath,
+            'size' => strlen($html),
+            'original_name' => $originalName,
+        ]);
+
         // Generate a short, unique import ID
         $importId = 'html_' . Str::random(8);
 
         // Persist the file using the import_id as the filename
         $storagePath = $this->persistWithImportId($sourcePath, 'html-imports', $importId, $html);
+
+        // Verify the file was actually persisted (not just returning the temp path)
+        if ($storagePath === $sourcePath) {
+            Log::warning('extractHtml: persistence returned temp path, trying emergency save');
+            $emergencyPath = storage_path('app/html-imports/' . $importId . '.html');
+            $emergencyDir = dirname($emergencyPath);
+            if (!is_dir($emergencyDir)) {
+                @mkdir($emergencyDir, 0777, true);
+            }
+            if (@file_put_contents($emergencyPath, $html) !== false) {
+                $storagePath = $emergencyPath;
+            } else {
+                try {
+                    \Illuminate\Support\Facades\Storage::put('html-imports/' . $importId . '.html', $html);
+                    $storagePath = \Illuminate\Support\Facades\Storage::path('html-imports/' . $importId . '.html');
+                } catch (\Exception $e) {
+                    Log::error('extractHtml: ALL persistence methods failed', ['error' => $e->getMessage()]);
+                }
+            }
+        }
 
         // Write the manifest entry so the tool can find the file
         $this->writeManifest('html-imports', $importId, $storagePath, $originalName);
@@ -354,11 +388,60 @@ class FileExtractor
         $originalName = $file->getClientOriginalName();
         $sourcePath = $file->getRealPath();
 
+        // CRITICAL: Read the entire file into memory IMMEDIATELY.
+        // The temp file may be cleaned up at any moment on shared hosting.
+        $content = file_get_contents($sourcePath);
+        if ($content === false) {
+            Log::error('extractZip: cannot read uploaded file', [
+                'source' => $sourcePath,
+                'exists' => file_exists($sourcePath),
+            ]);
+            return "[ZIP UPLOAD FAILED]\nCould not read the uploaded file. Please try uploading again.";
+        }
+
+        Log::info('extractZip: file read into memory', [
+            'source' => $sourcePath,
+            'size' => strlen($content),
+            'original_name' => $originalName,
+        ]);
+
         // Generate a short, unique import ID
         $importId = 'zip_' . Str::random(8);
 
         // Persist the file using the import_id as the filename
-        $storagePath = $this->persistWithImportId($sourcePath, 'zip-imports', $importId);
+        // Pass the content so it doesn't need to re-read the temp file
+        $storagePath = $this->persistWithImportId($sourcePath, 'zip-imports', $importId, $content);
+
+        // Verify the file was actually persisted (not just returning the temp path)
+        if ($storagePath === $sourcePath) {
+            // All persistence methods failed! The temp path will be gone by the time
+            // the import tool runs. Try one more time with a direct write.
+            Log::warning('extractZip: persistence returned temp path, trying emergency save');
+            $emergencyPath = storage_path('app/zip-imports/' . $importId . '.zip');
+            $emergencyDir = dirname($emergencyPath);
+            if (!is_dir($emergencyDir)) {
+                @mkdir($emergencyDir, 0777, true);
+            }
+            if (@file_put_contents($emergencyPath, $content) !== false) {
+                $storagePath = $emergencyPath;
+                Log::info('extractZip: emergency save succeeded', ['path' => $emergencyPath]);
+            } else {
+                // Try the Laravel storage facade as absolute last resort
+                try {
+                    \Illuminate\Support\Facades\Storage::put('zip-imports/' . $importId . '.zip', $content);
+                    $storagePath = storage_path('app/zip-imports/' . $importId . '.zip');
+                    if (!file_exists($storagePath)) {
+                        // Storage facade might use a different disk path
+                        $storagePath = \Illuminate\Support\Facades\Storage::path('zip-imports/' . $importId . '.zip');
+                    }
+                    Log::info('extractZip: Storage facade save succeeded', ['path' => $storagePath]);
+                } catch (\Exception $e) {
+                    Log::error('extractZip: ALL persistence methods failed including Storage facade', [
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+        }
 
         // Write the manifest entry so the tool can find the file
         $this->writeManifest('zip-imports', $importId, $storagePath, $originalName);
@@ -543,10 +626,23 @@ class FileExtractor
      */
     protected function persistWithImportId(string $sourcePath, string $subdir, string $importId, ?string $content = null): string
     {
+        // CRITICAL: Read the file content into memory FIRST, before anything else.
+        // On some hosts, the temp file can be cleaned up unpredictably.
+        if ($content === null) {
+            $content = @file_get_contents($sourcePath);
+            if ($content === false) {
+                Log::error("File persist: cannot read source file", [
+                    'source' => $sourcePath,
+                    'exists' => file_exists($sourcePath),
+                    'readable' => is_readable($sourcePath),
+                ]);
+            }
+        }
+
         // Determine extension from source path
         $ext = strtolower(pathinfo($sourcePath, PATHINFO_EXTENSION));
         if (!$ext || strlen($ext) > 10) {
-            // Temp files often have weird extensions; detect from content
+            // Temp files often have weird extensions; detect from subdir
             $ext = ($subdir === 'zip-imports') ? 'zip' : 'html';
         }
 
@@ -558,62 +654,86 @@ class FileExtractor
             sys_get_temp_dir() . '/gk-cms-imports',
         ];
 
+        $errors = [];
+
         foreach ($targetDirs as $dir) {
             // Ensure directory exists
             if (!is_dir($dir)) {
                 if (!@mkdir($dir, 0755, true)) {
+                    $errors[] = "mkdir failed: {$dir} (" . (error_get_last()['message'] ?? 'unknown') . ")";
                     continue;
                 }
             }
 
             $targetPath = $dir . '/' . $importId . '.' . $ext;
 
-            // Strategy 1: copy()
-            if (@copy($sourcePath, $targetPath) && file_exists($targetPath)) {
-                Log::info("File persist: saved via copy()", ['target' => $targetPath]);
-                return $targetPath;
-            }
-
-            // Strategy 2: file_get_contents + file_put_contents
-            $data = $content ?? @file_get_contents($sourcePath);
-            if ($data !== false && $data !== null) {
-                if (@file_put_contents($targetPath, $data) !== false && file_exists($targetPath)) {
-                    Log::info("File persist: saved via file_put_contents()", ['target' => $targetPath]);
+            // Strategy 1: file_put_contents with in-memory content (most reliable)
+            if ($content !== false && $content !== null) {
+                if (@file_put_contents($targetPath, $content) !== false && file_exists($targetPath)) {
+                    Log::info("File persist: saved via file_put_contents()", [
+                        'target' => $targetPath,
+                        'size' => strlen($content),
+                    ]);
                     return $targetPath;
                 }
+                $errors[] = "file_put_contents failed: {$targetPath} (" . (error_get_last()['message'] ?? 'unknown') . ")";
             }
 
-            // Strategy 3: Stream copy
-            $src = @fopen($sourcePath, 'rb');
-            $dst = @fopen($targetPath, 'wb');
-            if ($src && $dst) {
-                $bytesCopied = @stream_copy_to_stream($src, $dst);
-                @fclose($src);
-                @fclose($dst);
-                if ($bytesCopied > 0 && file_exists($targetPath)) {
-                    Log::info("File persist: saved via stream_copy()", ['target' => $targetPath]);
+            // Strategy 2: copy() from source file (if it still exists)
+            if (file_exists($sourcePath)) {
+                if (@copy($sourcePath, $targetPath) && file_exists($targetPath)) {
+                    Log::info("File persist: saved via copy()", ['target' => $targetPath]);
                     return $targetPath;
                 }
-            } else {
-                if ($src) @fclose($src);
-                if ($dst) @fclose($dst);
+                $errors[] = "copy failed: {$targetPath} (" . (error_get_last()['message'] ?? 'unknown') . ")";
+            }
+
+            // Strategy 3: Stream copy from source file
+            if (file_exists($sourcePath)) {
+                $src = @fopen($sourcePath, 'rb');
+                $dst = @fopen($targetPath, 'wb');
+                if ($src && $dst) {
+                    $bytesCopied = @stream_copy_to_stream($src, $dst);
+                    @fclose($src);
+                    @fclose($dst);
+                    if ($bytesCopied > 0 && file_exists($targetPath)) {
+                        Log::info("File persist: saved via stream_copy()", ['target' => $targetPath]);
+                        return $targetPath;
+                    }
+                    $errors[] = "stream_copy failed: {$targetPath} (bytes={$bytesCopied})";
+                } else {
+                    if ($src) @fclose($src);
+                    if ($dst) @fclose($dst);
+                    $errors[] = "fopen failed: {$targetPath}";
+                }
             }
         }
 
         // Strategy 4: rename/move as absolute last resort
-        $primaryDir = $targetDirs[0];
-        if (is_dir($primaryDir) || @mkdir($primaryDir, 0755, true)) {
-            $targetPath = $primaryDir . '/' . $importId . '.' . $ext;
-            if (@rename($sourcePath, $targetPath) && file_exists($targetPath)) {
-                Log::info("File persist: saved via rename()", ['target' => $targetPath]);
-                return $targetPath;
+        if (file_exists($sourcePath)) {
+            $primaryDir = $targetDirs[0];
+            if (is_dir($primaryDir) || @mkdir($primaryDir, 0755, true)) {
+                $targetPath = $primaryDir . '/' . $importId . '.' . $ext;
+                if (@rename($sourcePath, $targetPath) && file_exists($targetPath)) {
+                    Log::info("File persist: saved via rename()", ['target' => $targetPath]);
+                    return $targetPath;
+                }
+                $errors[] = "rename failed: {$targetPath} (" . (error_get_last()['message'] ?? 'unknown') . ")";
             }
         }
 
+        // ALL methods failed — log detailed diagnostics
         Log::error("File persist: ALL methods failed", [
             'source' => $sourcePath,
             'import_id' => $importId,
             'source_exists' => file_exists($sourcePath),
+            'content_loaded' => ($content !== false && $content !== null),
+            'content_size' => ($content !== false && $content !== null) ? strlen($content) : 0,
+            'errors' => $errors,
+            'storage_path' => storage_path(),
+            'storage_writable' => is_writable(storage_path()),
+            'storage_app_exists' => is_dir(storage_path('app')),
+            'storage_app_writable' => is_writable(storage_path('app')),
             'source_readable' => is_readable($sourcePath),
             'tried_dirs' => $targetDirs,
         ]);

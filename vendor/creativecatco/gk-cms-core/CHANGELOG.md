@@ -5,6 +5,16 @@ All notable changes to GKeys CMS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.7.1] - 2026-03-19
+
+### Fixed
+- **Version display stuck on 0.8.6.7**: The `config/cms.php` version was never updated in previous releases. Now properly set to 0.8.7.1. The `getInstalledVersion()` method reads from this file first, so it was always showing the old version.
+- **File persistence reliability overhaul**: 
+  - `extractZip()` and `extractHtml()` now read the entire file into memory IMMEDIATELY upon upload, before any persistence attempts. This ensures the data is available even if the temp file is cleaned up.
+  - Added emergency save path: if `persistWithImportId()` returns the temp path (meaning all 12 attempts failed), tries `file_put_contents()` with `0777` permissions, then falls back to Laravel's `Storage` facade.
+  - `persistWithImportId()` now prioritizes `file_put_contents()` with in-memory content over `copy()` from disk, since the source file may be gone.
+  - Added detailed error logging for every failed persistence attempt, including the specific error message, directory permissions, and storage path diagnostics.
+
 ## [0.8.7.0] - 2026-03-19
 
 ### Changed
