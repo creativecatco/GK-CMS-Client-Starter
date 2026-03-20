@@ -5,6 +5,14 @@ All notable changes to GKeys CMS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.7.2] - 2026-03-19
+
+### Fixed
+- **ZIP/HTML file persistence: Storage::disk('public') as primary strategy**: All previous filesystem persistence methods (`file_put_contents`, `copy`, `stream_copy`, `rename`) were failing on SiteGround shared hosting. Now uses `Storage::disk('public')` as the FIRST persistence strategy — this is the same method that successfully handles image uploads on SiteGround, writing to `storage/app/public/cms/imports/`. This is proven to work because CMS image uploads use the exact same disk.
+- **Laravel Cache as ultimate fallback**: If ALL filesystem methods fail (including Storage facade), the file content is stored in Laravel Cache (database-backed) as base64. The `resolveImportId()` method can retrieve it from cache and write to a temp file for the import tool.
+- **resolveImportId() now checks Storage::disk('public') first**: The resolution order is now: Storage::disk('public') → Storage::disk('local') → manifest files → predictable paths → Cache (database) → glob search.
+- **resolveZipPath() updated**: Now also searches `storage/app/public/cms/imports/` and uses `Storage::disk('public')` for temp file persistence.
+
 ## [0.8.7.1] - 2026-03-19
 
 ### Fixed

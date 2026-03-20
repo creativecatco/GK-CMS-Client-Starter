@@ -4,6 +4,7 @@ namespace CreativeCatCo\GkCmsCore\Services\Ai;
 
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 /**
@@ -178,24 +179,12 @@ class FileExtractor
         // Persist the file using the import_id as the filename
         $storagePath = $this->persistWithImportId($sourcePath, 'html-imports', $importId, $html);
 
-        // Verify the file was actually persisted (not just returning the temp path)
-        if ($storagePath === $sourcePath) {
-            Log::warning('extractHtml: persistence returned temp path, trying emergency save');
-            $emergencyPath = storage_path('app/html-imports/' . $importId . '.html');
-            $emergencyDir = dirname($emergencyPath);
-            if (!is_dir($emergencyDir)) {
-                @mkdir($emergencyDir, 0777, true);
-            }
-            if (@file_put_contents($emergencyPath, $html) !== false) {
-                $storagePath = $emergencyPath;
-            } else {
-                try {
-                    \Illuminate\Support\Facades\Storage::put('html-imports/' . $importId . '.html', $html);
-                    $storagePath = \Illuminate\Support\Facades\Storage::path('html-imports/' . $importId . '.html');
-                } catch (\Exception $e) {
-                    Log::error('extractHtml: ALL persistence methods failed', ['error' => $e->getMessage()]);
-                }
-            }
+        // Verify the file was actually persisted
+        if ($storagePath === $sourcePath || str_starts_with($storagePath, 'cache://')) {
+            Log::warning('extractHtml: persistence used fallback', [
+                'returned_path' => $storagePath,
+                'is_cache' => str_starts_with($storagePath, 'cache://'),
+            ]);
         }
 
         // Write the manifest entry so the tool can find the file
@@ -412,35 +401,12 @@ class FileExtractor
         // Pass the content so it doesn't need to re-read the temp file
         $storagePath = $this->persistWithImportId($sourcePath, 'zip-imports', $importId, $content);
 
-        // Verify the file was actually persisted (not just returning the temp path)
-        if ($storagePath === $sourcePath) {
-            // All persistence methods failed! The temp path will be gone by the time
-            // the import tool runs. Try one more time with a direct write.
-            Log::warning('extractZip: persistence returned temp path, trying emergency save');
-            $emergencyPath = storage_path('app/zip-imports/' . $importId . '.zip');
-            $emergencyDir = dirname($emergencyPath);
-            if (!is_dir($emergencyDir)) {
-                @mkdir($emergencyDir, 0777, true);
-            }
-            if (@file_put_contents($emergencyPath, $content) !== false) {
-                $storagePath = $emergencyPath;
-                Log::info('extractZip: emergency save succeeded', ['path' => $emergencyPath]);
-            } else {
-                // Try the Laravel storage facade as absolute last resort
-                try {
-                    \Illuminate\Support\Facades\Storage::put('zip-imports/' . $importId . '.zip', $content);
-                    $storagePath = storage_path('app/zip-imports/' . $importId . '.zip');
-                    if (!file_exists($storagePath)) {
-                        // Storage facade might use a different disk path
-                        $storagePath = \Illuminate\Support\Facades\Storage::path('zip-imports/' . $importId . '.zip');
-                    }
-                    Log::info('extractZip: Storage facade save succeeded', ['path' => $storagePath]);
-                } catch (\Exception $e) {
-                    Log::error('extractZip: ALL persistence methods failed including Storage facade', [
-                        'error' => $e->getMessage(),
-                    ]);
-                }
-            }
+        // Verify the file was actually persisted
+        if ($storagePath === $sourcePath || str_starts_with($storagePath, 'cache://')) {
+            Log::warning('extractZip: persistence used fallback', [
+                'returned_path' => $storagePath,
+                'is_cache' => str_starts_with($storagePath, 'cache://'),
+            ]);
         }
 
         // Write the manifest entry so the tool can find the file
@@ -642,32 +608,79 @@ class FileExtractor
         // Determine extension from source path
         $ext = strtolower(pathinfo($sourcePath, PATHINFO_EXTENSION));
         if (!$ext || strlen($ext) > 10) {
-            // Temp files often have weird extensions; detect from subdir
             $ext = ($subdir === 'zip-imports') ? 'zip' : 'html';
         }
 
-        // Try multiple target directories in order of preference
+        $errors = [];
+        $storageDiskPath = 'cms/imports/' . $importId . '.' . $ext;
+
+        // ═══════════════════════════════════════════════════════════════
+        // STRATEGY 1 (PRIMARY): Use Storage::disk('public')
+        // This is the SAME method that successfully handles image uploads
+        // on SiteGround shared hosting. It writes to storage/app/public/
+        // which is proven to be writable.
+        // ═══════════════════════════════════════════════════════════════
+        if ($content !== false && $content !== null) {
+            try {
+                Storage::disk('public')->put($storageDiskPath, $content);
+                // Verify the file was written
+                if (Storage::disk('public')->exists($storageDiskPath)) {
+                    $resolvedPath = Storage::disk('public')->path($storageDiskPath);
+                    Log::info("File persist: saved via Storage::disk('public')", [
+                        'disk_path' => $storageDiskPath,
+                        'resolved_path' => $resolvedPath,
+                        'size' => strlen($content),
+                    ]);
+                    return $resolvedPath;
+                }
+                $errors[] = "Storage::disk('public')->put() succeeded but file not found at expected path";
+            } catch (\Exception $e) {
+                $errors[] = "Storage::disk('public') failed: " . $e->getMessage();
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // STRATEGY 2: Use Storage::disk('local') (default disk)
+        // Writes to storage/app/
+        // ═══════════════════════════════════════════════════════════════
+        if ($content !== false && $content !== null) {
+            try {
+                Storage::disk('local')->put($subdir . '/' . $importId . '.' . $ext, $content);
+                if (Storage::disk('local')->exists($subdir . '/' . $importId . '.' . $ext)) {
+                    $resolvedPath = Storage::disk('local')->path($subdir . '/' . $importId . '.' . $ext);
+                    Log::info("File persist: saved via Storage::disk('local')", [
+                        'resolved_path' => $resolvedPath,
+                        'size' => strlen($content),
+                    ]);
+                    return $resolvedPath;
+                }
+                $errors[] = "Storage::disk('local')->put() succeeded but file not found";
+            } catch (\Exception $e) {
+                $errors[] = "Storage::disk('local') failed: " . $e->getMessage();
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // STRATEGY 3: Raw file_put_contents to multiple directories
+        // ═══════════════════════════════════════════════════════════════
         $targetDirs = [
+            storage_path('app/public/cms/imports'),
             storage_path('app/' . $subdir),
             storage_path('app'),
             storage_path('framework/cache'),
             sys_get_temp_dir() . '/gk-cms-imports',
         ];
 
-        $errors = [];
-
         foreach ($targetDirs as $dir) {
-            // Ensure directory exists
             if (!is_dir($dir)) {
                 if (!@mkdir($dir, 0755, true)) {
-                    $errors[] = "mkdir failed: {$dir} (" . (error_get_last()['message'] ?? 'unknown') . ")";
+                    $errors[] = "mkdir failed: {$dir}";
                     continue;
                 }
             }
 
             $targetPath = $dir . '/' . $importId . '.' . $ext;
 
-            // Strategy 1: file_put_contents with in-memory content (most reliable)
             if ($content !== false && $content !== null) {
                 if (@file_put_contents($targetPath, $content) !== false && file_exists($targetPath)) {
                     Log::info("File persist: saved via file_put_contents()", [
@@ -679,46 +692,31 @@ class FileExtractor
                 $errors[] = "file_put_contents failed: {$targetPath} (" . (error_get_last()['message'] ?? 'unknown') . ")";
             }
 
-            // Strategy 2: copy() from source file (if it still exists)
+            // Try copy() from source if it still exists
             if (file_exists($sourcePath)) {
                 if (@copy($sourcePath, $targetPath) && file_exists($targetPath)) {
                     Log::info("File persist: saved via copy()", ['target' => $targetPath]);
                     return $targetPath;
                 }
-                $errors[] = "copy failed: {$targetPath} (" . (error_get_last()['message'] ?? 'unknown') . ")";
-            }
-
-            // Strategy 3: Stream copy from source file
-            if (file_exists($sourcePath)) {
-                $src = @fopen($sourcePath, 'rb');
-                $dst = @fopen($targetPath, 'wb');
-                if ($src && $dst) {
-                    $bytesCopied = @stream_copy_to_stream($src, $dst);
-                    @fclose($src);
-                    @fclose($dst);
-                    if ($bytesCopied > 0 && file_exists($targetPath)) {
-                        Log::info("File persist: saved via stream_copy()", ['target' => $targetPath]);
-                        return $targetPath;
-                    }
-                    $errors[] = "stream_copy failed: {$targetPath} (bytes={$bytesCopied})";
-                } else {
-                    if ($src) @fclose($src);
-                    if ($dst) @fclose($dst);
-                    $errors[] = "fopen failed: {$targetPath}";
-                }
+                $errors[] = "copy failed: {$targetPath}";
             }
         }
 
-        // Strategy 4: rename/move as absolute last resort
-        if (file_exists($sourcePath)) {
-            $primaryDir = $targetDirs[0];
-            if (is_dir($primaryDir) || @mkdir($primaryDir, 0755, true)) {
-                $targetPath = $primaryDir . '/' . $importId . '.' . $ext;
-                if (@rename($sourcePath, $targetPath) && file_exists($targetPath)) {
-                    Log::info("File persist: saved via rename()", ['target' => $targetPath]);
-                    return $targetPath;
-                }
-                $errors[] = "rename failed: {$targetPath} (" . (error_get_last()['message'] ?? 'unknown') . ")";
+        // ═══════════════════════════════════════════════════════════════
+        // STRATEGY 4: Use Laravel Cache (database) to store the content
+        // This bypasses the filesystem entirely.
+        // ═══════════════════════════════════════════════════════════════
+        if ($content !== false && $content !== null) {
+            try {
+                $cacheKey = 'import_file_' . $importId;
+                \Illuminate\Support\Facades\Cache::put($cacheKey, base64_encode($content), 3600); // 1 hour TTL
+                Log::info("File persist: saved to Cache (database)", [
+                    'cache_key' => $cacheKey,
+                    'size' => strlen($content),
+                ]);
+                return 'cache://' . $cacheKey;
+            } catch (\Exception $e) {
+                $errors[] = "Cache::put() failed: " . $e->getMessage();
             }
         }
 
@@ -734,8 +732,6 @@ class FileExtractor
             'storage_writable' => is_writable(storage_path()),
             'storage_app_exists' => is_dir(storage_path('app')),
             'storage_app_writable' => is_writable(storage_path('app')),
-            'source_readable' => is_readable($sourcePath),
-            'tried_dirs' => $targetDirs,
         ]);
 
         return $sourcePath;
@@ -804,7 +800,42 @@ class FileExtractor
      */
     public static function resolveImportId(string $importId, string $subdir): ?string
     {
-        // Strategy 1: Check manifest files
+        $ext = ($subdir === 'zip-imports') ? 'zip' : 'html';
+
+        // ═══════════════════════════════════════════════════════════════
+        // Strategy 1 (PRIMARY): Check Storage::disk('public')
+        // This is where persistWithImportId saves files first.
+        // ═══════════════════════════════════════════════════════════════
+        $storageDiskPath = 'cms/imports/' . $importId . '.' . $ext;
+        try {
+            if (Storage::disk('public')->exists($storageDiskPath)) {
+                $resolvedPath = Storage::disk('public')->path($storageDiskPath);
+                if (file_exists($resolvedPath)) {
+                    return $resolvedPath;
+                }
+            }
+        } catch (\Exception $e) {
+            // Storage facade not available, continue to other strategies
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // Strategy 2: Check Storage::disk('local')
+        // ═══════════════════════════════════════════════════════════════
+        try {
+            $localPath = $subdir . '/' . $importId . '.' . $ext;
+            if (Storage::disk('local')->exists($localPath)) {
+                $resolvedPath = Storage::disk('local')->path($localPath);
+                if (file_exists($resolvedPath)) {
+                    return $resolvedPath;
+                }
+            }
+        } catch (\Exception $e) {
+            // Continue
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // Strategy 3: Check manifest files
+        // ═══════════════════════════════════════════════════════════════
         $manifestPaths = [
             storage_path('app/' . $subdir . '/manifest.json'),
             storage_path('app/manifest_' . str_replace('/', '_', $subdir) . '.json'),
@@ -824,9 +855,12 @@ class FileExtractor
             }
         }
 
-        // Strategy 2: Check predictable file paths
+        // ═══════════════════════════════════════════════════════════════
+        // Strategy 4: Check predictable file paths across directories
+        // ═══════════════════════════════════════════════════════════════
         $extensions = ($subdir === 'zip-imports') ? ['zip'] : ['html', 'htm', 'tmp'];
         $searchDirs = [
+            storage_path('app/public/cms/imports'),
             storage_path('app/' . $subdir),
             storage_path('app'),
             storage_path('framework/cache'),
@@ -834,15 +868,55 @@ class FileExtractor
         ];
 
         foreach ($searchDirs as $dir) {
-            foreach ($extensions as $ext) {
-                $candidate = $dir . '/' . $importId . '.' . $ext;
+            foreach ($extensions as $extCandidate) {
+                $candidate = $dir . '/' . $importId . '.' . $extCandidate;
                 if (file_exists($candidate)) {
                     return $candidate;
                 }
             }
         }
 
-        // Strategy 3: Search by filename pattern (import_id anywhere in name)
+        // ═══════════════════════════════════════════════════════════════
+        // Strategy 5: Check Laravel Cache (database-backed)
+        // If persistWithImportId stored the content in cache, retrieve
+        // it and write to a temp file for the import tool to use.
+        // ═══════════════════════════════════════════════════════════════
+        try {
+            $cacheKey = 'import_file_' . $importId;
+            $cached = \Illuminate\Support\Facades\Cache::get($cacheKey);
+            if ($cached) {
+                $content = base64_decode($cached);
+                if ($content !== false) {
+                    // Write to a temp file for the import tool
+                    $tempPath = sys_get_temp_dir() . '/' . $importId . '.' . $ext;
+                    if (@file_put_contents($tempPath, $content) !== false) {
+                        Log::info("resolveImportId: restored from cache to temp file", [
+                            'cache_key' => $cacheKey,
+                            'temp_path' => $tempPath,
+                            'size' => strlen($content),
+                        ]);
+                        return $tempPath;
+                    }
+                    // If temp write fails, try Storage::disk('public')
+                    try {
+                        $diskPath = 'cms/imports/' . $importId . '.' . $ext;
+                        Storage::disk('public')->put($diskPath, $content);
+                        $resolvedPath = Storage::disk('public')->path($diskPath);
+                        if (file_exists($resolvedPath)) {
+                            return $resolvedPath;
+                        }
+                    } catch (\Exception $e) {
+                        // Continue
+                    }
+                }
+            }
+        } catch (\Exception $e) {
+            // Cache not available
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // Strategy 6: Glob search for any file containing the import_id
+        // ═══════════════════════════════════════════════════════════════
         foreach ($searchDirs as $dir) {
             if (!is_dir($dir)) continue;
             $files = glob($dir . '/*' . $importId . '*') ?: [];
